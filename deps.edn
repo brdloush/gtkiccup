@@ -1,0 +1,4 @@
+{:paths ["src"]
+ ;; Replicant does the diffing. It is pure .cljc with no deps of its own, and
+ ;; runs under babashka (it has its own bb test task).
+ :deps {no.cjohansen/replicant {:mvn/version "2026.07.1"}}}

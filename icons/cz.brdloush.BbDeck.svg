@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="plum" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#17203a"/>
+      <stop offset="1" stop-color="#4a2440"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#plum)"/>
+  <rect x="26" y="32" width="76" height="52" rx="7" fill="#ffffff" fill-opacity="0.94"/>
+  <rect x="36" y="43" width="44" height="7" rx="3.5" fill="#4a2440"/>
+  <rect x="36" y="57" width="56" height="5" rx="2.5" fill="#4a2440" fill-opacity="0.55"/>
+  <rect x="36" y="68" width="38" height="5" rx="2.5" fill="#4a2440" fill-opacity="0.55"/>
+  <rect x="54" y="92" width="20" height="6" rx="3" fill="#ffffff" fill-opacity="0.6"/>
+</svg>
