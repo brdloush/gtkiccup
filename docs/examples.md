@@ -123,7 +123,7 @@ bb shot deck
 bb test       # all nineteen test files (see Tests below)
 bb dev        # nREPL server on 1667, for editor-driven work
 
-bb install-desktop     # make the apps look native in the switcher and app grid
+bb install-desktop     # Linux: make the apps look native in the switcher and app grid
 bb uninstall-desktop   # and undo it
 
 bb tasks      # list them

@@ -81,15 +81,19 @@ Measured on Linux x86-64 with GTK 4.22 and babashka 1.13.222.
 
 You need:
 
-- **babashka 1.13.220 or later, the dynamically linked build.** The static
-  (musl) build cannot load system libraries, so FFI does not work with it.
-- **GTK4** (`libgtk-4.so.1`). On Debian/Ubuntu: `apt install libgtk-4-1`.
+- **babashka 1.13.220 or later.** On Linux, the dynamically linked build: the
+  static (musl) build cannot load system libraries, so FFI does not work with
+  it.
+- **GTK4** (`libgtk-4.so.1`). On Debian/Ubuntu: `apt install libgtk-4-1`. On
+  macOS: `brew install borkdude/brew/babashka gtk4`.
 - Optional: **libadwaita** (`libadwaita-1.so.0`), for `gtkiccup.adw`.
 - `git`, to fetch the dependency. Java is not needed: babashka resolves
   dependencies without a JVM since 1.13.221.
 
-It is tested on Linux only. macOS with Homebrew GTK4 may work, but nobody has
-tried it yet.
+It runs on Linux and macOS. The macOS part was first tried by
+[@jirkapenzes](https://github.com/jirkapenzes), who ran
+[Babatype](https://github.com/brdloush/babatype) on a Mac with Homebrew's
+babashka and GTK4 — thank you! libadwaita on macOS is not tried yet.
 
 There is no tagged release yet. Point your `bb.edn` at a checkout:
 
