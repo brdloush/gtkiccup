@@ -30,7 +30,7 @@
             [gtkiccup.core :as ui]
             [gtkiccup.ffi :as g]))
 
-(ffi/load-system-library "adwaita-1")
+(g/load-gtk-library "adwaita-1" 0)
 
 ;; ---------------------------------------------------------------------------
 ;; bindings

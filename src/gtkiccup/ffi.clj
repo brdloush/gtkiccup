@@ -3,9 +3,21 @@
    Only the handful of symbols the POC needs."
   (:require [babashka.ffi :as ffi :refer [defcfn]]))
 
-(ffi/load-system-library "gtk-4")
-(ffi/load-system-library "gobject-2.0")
-(ffi/load-system-library "glib-2.0")
+(defn load-gtk-library
+  "Loads a GNOME library by its short name, e.g. \"gtk-4\". Windows DLLs carry
+   the ABI version in the name, which load-system-library does not try:
+   gtk-4-1.dll from gvsbuild, libgtk-4-1.dll from MSYS2. abi is that suffix."
+  [short abi]
+  (if (.startsWith (System/getProperty "os.name") "Windows")
+    (ffi/load-library [(str short "-" abi ".dll") (str "lib" short "-" abi ".dll")])
+    (ffi/load-system-library short)))
+
+;; Linux finds a symbol in any library GTK pulled in; Windows looks only in the
+;; DLLs loaded here, so each one a binding below comes from is named.
+(load-gtk-library "gtk-4" 1)
+(load-gtk-library "gobject-2.0" 0)
+(load-gtk-library "glib-2.0" 0)
+(load-gtk-library "pango-1.0" 0)
 
 ;; -- lifecycle / main loop ---------------------------------------------------
 (defcfn gtk-init "gtk_init" [] :void)

@@ -39,6 +39,10 @@ A new test file must also be added to the `test` task in `bb.edn` and to
 Needs the dynamically linked babashka >= 1.13.220 and GTK4. Dependencies
 resolve without a JVM.
 
+A binding from a library not yet loaded at the top of `ffi.clj` needs its own
+`load-gtk-library` line there. Linux finds such a symbol anyway, through GTK's
+own dependencies; Windows does not, and fails with `symbol not found`.
+
 ## REPL workflow
 
 Prefer the REPL over edit-and-rerun. `bb dev` starts an nREPL server on port

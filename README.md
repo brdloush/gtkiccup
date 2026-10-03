@@ -85,7 +85,10 @@ You need:
   static (musl) build cannot load system libraries, so FFI does not work with
   it.
 - **GTK4** (`libgtk-4.so.1`). On Debian/Ubuntu: `apt install libgtk-4-1`. On
-  macOS: `brew install borkdude/brew/babashka gtk4`.
+  macOS: `brew install borkdude/brew/babashka gtk4`. On Windows: the
+  `GTK4_Gvsbuild_*_x64.zip` from [gvsbuild's
+  releases](https://github.com/wingtk/gvsbuild/releases), with its `bin` on
+  `PATH`.
 - Optional: **libadwaita** (`libadwaita-1.so.0`), for `gtkiccup.adw`.
 - `git`, to fetch the dependency. Java is not needed: babashka resolves
   dependencies without a JVM since 1.13.221.
@@ -94,6 +97,13 @@ It runs on Linux and macOS. The macOS part was first tried by
 [@jirkapenzes](https://github.com/jirkapenzes), who ran
 [Babatype](https://github.com/brdloush/babatype) on a Mac with Homebrew's
 babashka and GTK4 — thank you! libadwaita on macOS is not tried yet.
+
+On Windows 11 it runs with gvsbuild's GTK4 and the `windows-amd64` babashka.
+GTK from MSYS2, [gtk.org](https://www.gtk.org/docs/installations/windows/)'s
+first choice, should work too, but is not tried; nor is libadwaita on Windows.
+If `bb.exe` exits at once and prints nothing, install the [Microsoft Visual
+C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe): a fresh Windows
+does not have it.
 
 There is no tagged release yet. Point your `bb.edn` at a checkout:
 
