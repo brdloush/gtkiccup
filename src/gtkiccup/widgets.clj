@@ -184,10 +184,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- box-spec [orientation]
-  {:ctor      (fn [p] (g/box-new orientation (or (:spacing p) 0)))
+  ;; :homogeneous is set at construction, like :spacing: the renderer calls
+  ;; :apply with changed = #{} on a freshly built widget, so a build-time
+  ;; prop that is only handled in :apply never lands on a static page.
+  {:ctor      (fn [p] (doto (g/box-new orientation (or (:spacing p) 0))
+                       (g/box-set-homogeneous (g/->gbool (:homogeneous p false)))))
    :apply     (fn [w p changed]
                 (when (contains? changed :spacing)
-                  (g/box-set-spacing w (or (:spacing p) 0))))
+                  (g/box-set-spacing w (or (:spacing p) 0)))
+                (when (contains? changed :homogeneous)
+                  (g/box-set-homogeneous w (g/->gbool (:homogeneous p false))))
+                )
    :append    (fn [parent child _props] (g/box-append parent child))
    ;; positional insert, so a keyed move is one call instead of re-appending
    ;; every sibling after it. sibling nil = first.
@@ -221,6 +228,49 @@
   (when-let [l (:label p)]
     (g/menu-button-set-label w (str l)))
   w)
+
+(defn install-wheel-scroll!
+  "Makes a scrolled window respond to the mouse wheel by driving its
+   adjustment by hand. :wheel-scroll takes the axes -- true, :vertical (the
+   usual, a page that scrolls up and down), :horizontal, or :both.
+
+   GtkScrolledWindow is supposed to do this itself, and on some setups it
+   does not: the page scrolls with Page Down but the wheel does nothing,
+   because the window's own scroll controller never fires. An explicit
+   capture-phase controller sees the wheel over the whole content -- including
+   over any nested strip -- and moves the adjustment when there is somewhere
+   to go. It reports 'handled' only when it actually moved, so it never
+   swallows a scroll the rest of the UI could have used."
+  [sw axes]
+  (let [want-v (some? (#{true :vertical :both} axes))
+        want-h (some? (#{true :horizontal :both} axes))
+        flags  (cond (and want-v want-h) 3 want-v 1 want-h 2 :else 3)
+        ctrl   (g/event-controller-scroll-new flags)]
+    (g/event-controller-set-phase ctrl (:capture g/phase))
+    (letfn [(scroll [adj dy]
+              (when-not (g/null? adj)
+                (let [up   (g/adjustment-get-upper adj)
+                      page (g/adjustment-get-page-size adj)
+                      v    (g/adjustment-get-value adj)
+                      step (* dy (max 32 (* page 0.1)))
+                      nv   (max 0.0 (min (- up page) (+ v step)))]
+                  (when (not= nv v)
+                    (g/adjustment-set-value adj nv)
+                    true))))]
+      (g/signal-connect-data
+        ctrl "scroll"
+        (ffi/callback
+          (ffi/global-arena)
+          (fn [_self dx dy _data]
+            (let [moved (boolean
+                          (or (and want-v (scroll (g/scrolled-window-get-vadjustment sw) dy))
+                              (and want-h (scroll (g/scrolled-window-get-hadjustment sw) dx))))]
+              (if moved 1 0)))
+          [:pointer :double :double :pointer]
+          :int)
+        nil nil 0))
+    (g/widget-add-controller sw ctrl)
+    ctrl))
 
 (def widgets
   "tag -> widget spec. An atom so an optional namespace -- gtk.adw, say -- can
@@ -274,10 +324,20 @@
    ;; never sideways, which is what a list of rows wants. The cap itself is
    ;; CSS (min-height/max-height), as GtkScrolledWindow honors it.
    :scrolled {:ctor   (fn [p]
-                        (doto (g/scrolled-window-new)
+                        (let [sw (g/scrolled-window-new)]
                           (g/scrolled-window-set-policy
+                            sw
                             (get g/policy (or (:hscroll p) :never) 2)
-                            (get g/policy (or (:vscroll p) :automatic) 1))))
+                            (get g/policy (or (:vscroll p) :automatic) 1))
+                          ;; GtkScrolledWindow's own wheel handling does not
+                          ;; reliably fire here, so when :wheel-scroll is set we
+                          ;; drive the vadjustment from our own scroll
+                          ;; controller. Capture phase: the window is an
+                          ;; ancestor of the content, so it sees the wheel over
+                          ;; the strips too.
+                          (when-let [wheels (:wheel-scroll p)]
+                            (install-wheel-scroll! sw wheels))
+                          sw))
               :apply  (fn [_ _ _] nil)
               :append (fn [parent child _props] (g/scrolled-window-set-child parent child))
               :remove (fn [parent _child _props] (g/scrolled-window-set-child parent nil))}

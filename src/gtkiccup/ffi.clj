@@ -48,8 +48,13 @@
 
 ;; -- input (event controllers) ----------------------------------------------
 (defcfn event-controller-key-new "gtk_event_controller_key_new" [] :pointer)
+(defcfn event-controller-scroll-new "gtk_event_controller_scroll_new" [:int] :pointer)
 (defcfn widget-add-controller "gtk_widget_add_controller" [:pointer :pointer] :void)
 (defcfn event-controller-set-phase "gtk_event_controller_set_propagation_phase" [:pointer :int] :void)
+
+(def scroll-type
+  "GtkScrollType bits -- which axes an event-controller-scroll reports on."
+  {:none 0 :vertical 1 :horizontal 2 :both 3})
 
 (def phase
   "GtkPropagationPhase. Controllers default to :bubble, which means the focused
@@ -112,6 +117,8 @@
 (defcfn scrolled-window-new "gtk_scrolled_window_new" [] :pointer)
 (defcfn scrolled-window-set-child "gtk_scrolled_window_set_child" [:pointer :pointer] :void)
 (defcfn scrolled-window-set-policy "gtk_scrolled_window_set_policy" [:pointer :int :int] :void)
+(defcfn scrolled-window-get-vadjustment "gtk_scrolled_window_get_vadjustment" [:pointer] :pointer)
+(defcfn scrolled-window-get-hadjustment "gtk_scrolled_window_get_hadjustment" [:pointer] :pointer)
 (defcfn overlay-set-child "gtk_overlay_set_child" [:pointer :pointer] :void)
 (defcfn overlay-add-overlay "gtk_overlay_add_overlay" [:pointer :pointer] :void)
 (defcfn overlay-remove-overlay "gtk_overlay_remove_overlay" [:pointer :pointer] :void)
@@ -177,6 +184,8 @@
 (defcfn adjustment-set-lower "gtk_adjustment_set_lower" [:pointer :double] :void)
 (defcfn adjustment-set-upper "gtk_adjustment_set_upper" [:pointer :double] :void)
 (defcfn adjustment-get-lower "gtk_adjustment_get_lower" [:pointer] :double)
+(defcfn adjustment-set-value "gtk_adjustment_set_value" [:pointer :double] :void)
+(defcfn adjustment-get-page-size "gtk_adjustment_get_page_size" [:pointer] :double)
 (defcfn adjustment-get-step-increment "gtk_adjustment_get_step_increment" [:pointer] :double)
 (defcfn adjustment-get-upper "gtk_adjustment_get_upper" [:pointer] :double)
 (defcfn adjustment-get-value "gtk_adjustment_get_value" [:pointer] :double)
@@ -235,6 +244,7 @@
 ;; NULL sibling = first position. How a keyed move lands a child in place.
 (defcfn box-insert-child-after "gtk_box_insert_child_after" [:pointer :pointer :pointer] :void)
 (defcfn box-set-spacing "gtk_box_set_spacing" [:pointer :int] :void)
+(defcfn box-set-homogeneous "gtk_box_set_homogeneous" [:pointer :int] :void)
 
 ;; -- label ------------------------------------------------------------------
 (defcfn label-new "gtk_label_new" [:string] :pointer)
