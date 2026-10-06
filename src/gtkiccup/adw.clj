@@ -18,17 +18,22 @@
      :revealer       GtkRevealer -- :revealed toggles with a transition
      :clamp          AdwClamp, keeps content a readable width
      :banner         AdwBanner, an inline notice strip
-     :spinner        AdwSpinner
-     :picture        GtkPicture from a file, SVG included
+     :spinner       AdwSpinner
+     :picture        GtkPicture from a file, SVG included -- :content-fit and
+                     :can-shrink say how it sits in the space it is given
      :scroll         GtkScrolledWindow
      :level          GtkLevelBar
      :icon-button    GtkButton from an icon name
+     :overlay-split-view  AdwOverlaySplitView -- :slot :sidebar + the main pane
+     :view-stack     AdwViewStack, pages keyed by a :name child prop
+     :view-switcher  AdwViewSwitcher, bound to a stack by its :ref name
 
    Slots are a plain `:slot` prop on the child, honoured by the parent's
    :append. A child with no :slot goes to the parent's main content."
   (:require [babashka.ffi :as ffi :refer [defcfn]]
             [gtkiccup.core :as ui]
-            [gtkiccup.ffi :as g]))
+            [gtkiccup.ffi :as g]
+            [gtkiccup.refs :as refs]))
 
 (g/load-gtk-library "adwaita-1" 0)
 
@@ -42,6 +47,65 @@
 
 (defcfn window-new "adw_window_new" [] :pointer)
 (defcfn window-set-content "adw_window_set_content" [:pointer :pointer] :void)
+
+;; -- application -------------------------------------------------------------
+;; The app object itself is GIO, so load it too. There is no g_application_run:
+;; gtkiccup keeps pumping its own loop (the recommended integration shape), and
+;; the app is created through its GType, because calling adw_application_new
+;; through libffi crashes in this build (the crash is inside its variadic
+;; g_application_new fallback).
+(g/load-gtk-library "gio-2.0" 0)
+
+(defcfn application-new "adw_application_new" [] :pointer)
+(defcfn application-get-type "adw_application_get_type" [] :long)
+(defcfn application-object-new "g_object_new" [:long :pointer] :pointer)
+(defcfn application-set-id "g_application_set_application_id" [:pointer :string] :void)
+(defcfn application-get-id "g_application_get_application_id" [:pointer] :string)
+(defcfn application-register "g_application_register" [:pointer :pointer :pointer] :int)
+(defcfn application-activate "g_application_activate" [:pointer] :void)
+(defcfn application-window-new "adw_application_window_new" [:pointer] :pointer)
+(defcfn application-window-set-content "adw_application_window_set_content" [:pointer :pointer] :void)
+
+;; -- the sidebar pair, the stack and its switcher ----------------------------
+(defcfn split-view-new "adw_overlay_split_view_new" [] :pointer)
+(defcfn split-set-sidebar "adw_overlay_split_view_set_sidebar" [:pointer :pointer] :void)
+(defcfn split-set-content "adw_overlay_split_view_set_content" [:pointer :pointer] :void)
+(defcfn split-get-sidebar "adw_overlay_split_view_get_sidebar" [:pointer] :pointer)
+(defcfn split-get-content "adw_overlay_split_view_get_content" [:pointer] :pointer)
+(defcfn split-set-show-sidebar "adw_overlay_split_view_set_show_sidebar" [:pointer :int] :void)
+(defcfn split-get-show-sidebar "adw_overlay_split_view_get_show_sidebar" [:pointer] :int)
+(defcfn split-set-fraction "adw_overlay_split_view_set_sidebar_width_fraction" [:pointer :double] :void)
+(defcfn split-get-fraction "adw_overlay_split_view_get_sidebar_width_fraction" [:pointer] :double)
+(defcfn split-set-min-width "adw_overlay_split_view_set_min_sidebar_width" [:pointer :double] :void)
+(defcfn split-get-min-width "adw_overlay_split_view_get_min_sidebar_width" [:pointer] :double)
+(defcfn split-set-max-width "adw_overlay_split_view_set_max_sidebar_width" [:pointer :double] :void)
+(defcfn split-get-max-width "adw_overlay_split_view_get_max_sidebar_width" [:pointer] :double)
+
+(defcfn view-stack-new "adw_view_stack_new" [] :pointer)
+(defcfn view-stack-add "adw_view_stack_add" [:pointer :pointer] :void)
+(defcfn view-stack-add-titled-with-icon "adw_view_stack_add_titled_with_icon"
+  [:pointer :pointer :string :string :string] :pointer)
+(defcfn view-stack-remove "adw_view_stack_remove" [:pointer :pointer] :void)
+(defcfn view-stack-set-visible-name "adw_view_stack_set_visible_child_name" [:pointer :string] :void)
+(defcfn view-stack-get-visible-name "adw_view_stack_get_visible_child_name" [:pointer] :string)
+(defcfn view-stack-child-by-name "adw_view_stack_get_child_by_name" [:pointer :string] :pointer)
+(defcfn view-stack-set-hhomogeneous "adw_view_stack_set_hhomogeneous" [:pointer :int] :void)
+(defcfn view-stack-set-vhomogeneous "adw_view_stack_set_vhomogeneous" [:pointer :int] :void)
+(defcfn view-stack-get-page "adw_view_stack_get_page" [:pointer :pointer] :pointer)
+(defcfn page-get-title "adw_view_stack_page_get_title" [:pointer] :string)
+(defcfn page-get-name "adw_view_stack_page_get_name" [:pointer] :string)
+
+(defcfn view-switcher-new "adw_view_switcher_new" [] :pointer)
+(defcfn view-switcher-set-stack "adw_view_switcher_set_stack" [:pointer :pointer] :void)
+(defcfn view-switcher-get-stack "adw_view_switcher_get_stack" [:pointer] :pointer)
+(defcfn view-switcher-set-policy "adw_view_switcher_set_policy" [:pointer :int] :void)
+(defcfn view-switcher-get-policy "adw_view_switcher_get_policy" [:pointer] :int)
+
+(def VIEW-SWITCHER-POLICY
+  "AdwViewSwitcherPolicy, read out of the typelib (g_enum_info_*). In this
+   libadwaita the policy is wide or narrow -- the responsive pair, not the old
+   always/never."
+  {:narrow 0 :wide 1})
 
 (defcfn bin-new "adw_bin_new" [] :pointer)
 (defcfn bin-set-child "adw_bin_set_child" [:pointer :pointer] :void)
@@ -103,7 +167,6 @@
 (defcfn picture-new "gtk_picture_new" [] :pointer)
 (defcfn picture-set-paintable "gtk_picture_set_paintable" [:pointer :pointer] :void)
 (defcfn picture-set-content-fit "gtk_picture_set_content_fit" [:pointer :int] :void)
-(defcfn texture-from-filename "gdk_texture_new_from_filename" [:string :pointer] :pointer)
 (defcfn revealer-new "gtk_revealer_new" [] :pointer)
 (defcfn revealer-set-child "gtk_revealer_set_child" [:pointer :pointer] :void)
 (defcfn revealer-set-reveal "gtk_revealer_set_reveal_child" [:pointer :int] :void)
@@ -142,21 +205,72 @@
   {:ctor        window-new
    :set-content window-set-content})
 
+(defn application-window
+  "Like `window`, but the toplevel is an AdwApplicationWindow under an
+   AdwApplication: (ui/run view :window (adw/application-window \"cz.brdloush.MyApp\")).
+
+   The app is registered and activated -- startup is emitted, which is what the
+   windows need before they can be added -- but never `g_application_run`:
+   gtkiccup keeps pumping its own g_main_context_iteration loop, so later!,
+   wake! and the REPL story are unchanged. Having the app is what makes the
+   window a real application window; actions, accelerators and single-instance
+   handling can hook into it later. `app-id` may be nil, for a local app that
+   only parents windows.
+
+   The activate/startup handlers are inert callbacks: the window is built by
+   run's loop, not by an activate handler, but connecting something stops
+   GLib's \"application implements no activate\" warning."
+  ([app-id]
+   (let [noop   (delay
+                  (ffi/callback (ffi/global-arena)
+                                (fn [_ _] 0)
+                                [:pointer :pointer] :int))
+         app    (delay
+                  (let [a (application-object-new (application-get-type) ffi/null)]
+                    (when app-id
+                      (application-set-id a (str app-id)))
+                    (application-register a nil nil)
+                    (g/signal-connect-data a "activate" @noop nil nil 0)
+                    (g/signal-connect-data a "startup" @noop nil nil 0)
+                    (g/object-ref-sink a)
+                    ;; startup is emitted from here if still pending, so the
+                    ;; windows created next land in the app
+                    (application-activate a)
+                    a))]
+     {:ctor        #(application-window-new @app)
+      :set-content application-window-set-content
+      ;; the app itself, dereffed -- for tests and callers wanting the pointer
+      :app         app}))
+  ([] (application-window nil)))
+
 ;; ---------------------------------------------------------------------------
 ;; helpers
 ;; ---------------------------------------------------------------------------
 
 (defn- slot-of [props] (:slot props :content))
 
+(defn- policy-of [k]
+  "AdwViewSwitcherPolicy: :wide is the pill bar, :narrow the icon row."
+  (get VIEW-SWITCHER-POLICY (when k (keyword (name k))) 1))
+
+(defn- stack-of-ref
+  "What a :stack prop points at -- a ref name, or a pointer kept from earlier.
+   nil when the ref is not resolved yet: a late sibling is normal, and
+   :after-children tries again."
+  [x]
+  (when-let [w (refs/resolve x)]
+    (when-not (g/null? w) w)))
+
 (defn- set-picture-file!
-  "Loads `path` into a GtkPicture. Silently leaves it blank if the file is not
-   there, so a missing logo cannot stop an app starting."
+  "Loads `path` into a GtkPicture as a GdkTexture, which is what lets the
+   picture scale it however the layout asks. Silently goes blank when the file
+   is not there, so a missing cover cannot stop an app starting. The picture
+   takes its own reference, so ours goes immediately."
   [pic path]
-  (let [tex (when path
-              (try (let [t (texture-from-filename (str path) nil)]
-                     (when-not (g/null? t) t))
-                   (catch Throwable _ nil)))]
-    (picture-set-paintable pic (or tex ffi/null))))
+  (if-let [tex (g/texture-file path)]
+    (do (picture-set-paintable pic tex)
+        (g/object-unref tex))
+    (picture-set-paintable pic ffi/null)))
 
 (defn- nth-child
   "The nth child widget of a container, by walking the sibling chain. Lets a
@@ -218,6 +332,101 @@
                             (case (slot-of props)
                               (:start :end) (header-remove parent child)
                               (header-set-title-widget parent nil)))}
+
+   ;; The two-pane layout: one pane always there, the other floating over it
+   ;; when the window is too narrow to hold both. :slot :sidebar picks the
+   ;; floating pane; everything else is the content. The width props are what
+   ;; make a sidebar read as a panel rather than a strip: a fraction, and the
+   ;; pixel range that fraction is clamped to.
+   ;;
+   ;; The min/max are doubles, not ints -- since the width-unit landed,
+   ;; libadwaita measures them as fractions of the content, so an :int argtype
+   ;; reads back garbage. The Clojure-side names are unchanged.
+   :overlay-split-view {:ctor  (fn [p]
+                                 (doto (split-view-new)
+                                   (split-set-show-sidebar (g/->gbool (:show-sidebar p true)))
+                                   (split-set-fraction
+                                    (double (:sidebar-width-fraction p 0.4)))
+                                   (split-set-min-width
+                                    (double (:min-sidebar-width p 320)))
+                                   (split-set-max-width
+                                    (double (:max-sidebar-width p 420)))))
+                        :apply (fn [w p changed]
+                                 (when (contains? changed :show-sidebar)
+                                   (split-set-show-sidebar w (g/->gbool (:show-sidebar p true))))
+                                 (when (contains? changed :sidebar-width-fraction)
+                                   (split-set-fraction w (double (:sidebar-width-fraction p 0.4))))
+                                 (when (contains? changed :min-sidebar-width)
+                                   (split-set-min-width w (double (:min-sidebar-width p 320))))
+                                 (when (contains? changed :max-sidebar-width)
+                                   (split-set-max-width w (double (:max-sidebar-width p 420)))))
+                        :append (fn [parent child props]
+                                  (if (= :sidebar (slot-of props))
+                                    (split-set-sidebar parent child)
+                                    (split-set-content parent child)))
+                        ;; no remove call on the type: clearing the slot the
+                        ;; child was in is the removal
+                        :remove (fn [parent child props]
+                                  (if (= :sidebar (slot-of props))
+                                    (split-set-sidebar parent nil)
+                                    (split-set-content parent nil)))}
+
+   ;; Pages that switch as a unit -- the sidebar's player / lyrics / queue.
+   ;; A child is a page by its :name; :title and :icon are what a switcher
+   ;; shows. The visible page is by name too, and since a page only exists
+   ;; once its child has landed, the starting page is set in :after-children,
+   ;; the way a carousel's is.
+   :view-stack {:ctor   (fn [p]
+                          (doto (view-stack-new)
+                            (view-stack-set-hhomogeneous (g/->gbool (:h-homogeneous p true)))
+                            (view-stack-set-vhomogeneous (g/->gbool (:v-homogeneous p false)))))
+                 :apply (fn [w p changed]
+                          (when (contains? changed :visible-child-name)
+                            ;; unknown names are skipped, not warned about:
+                            ;; the page may be this render's, not yet added
+                            (when-let [n (:visible-child-name p)]
+                              (when-not (g/null? (view-stack-child-by-name w n))
+                                (view-stack-set-visible-name w n)))))
+                 :after-children (fn [w p]
+                                   (when-let [n (:visible-child-name p)]
+                                     (when-not (g/null? (view-stack-child-by-name w n))
+                                       (view-stack-set-visible-name w n))))
+                 :append (fn [parent child props]
+                           (if-let [n (:name props)]
+                             (view-stack-add-titled-with-icon
+                              parent child (str n)
+                              (str (:title props ""))
+                              (when-let [i (:icon props)] (str i)))
+                             (view-stack-add parent child)))
+                 :remove (fn [parent child _props] (view-stack-remove parent child))}
+
+   ;; What a stack looks like from the outside: a row of buttons. :stack is a
+   ;; reference -- the name the stack carries, or a pointer kept from earlier
+   ;; (see gtkiccup.refs) -- and :policy is :wide (the pill bar) or :narrow.
+   ;;
+   ;; The stack may be built after the switcher, so :apply is not enough:
+   ;; :after-children runs once the container's children are all in, and that
+   ;; is as late as the ref can be resolved without another render.
+   :view-switcher {:ctor  (fn [p]
+                            (doto (view-switcher-new)
+                              (view-switcher-set-policy (policy-of (:policy p :wide)))
+                              (view-switcher-set-stack (stack-of-ref (:stack p)))))
+                   :apply (fn [w p changed]
+                            (when (contains? changed :policy)
+                              (view-switcher-set-policy w (policy-of (:policy p :wide))))
+                            ;; dropping :stack means unbound, not "keep the
+                            ;; old one"; setting it binds whatever the ref
+                            ;; resolves to now
+                            (when (contains? changed :stack)
+                              (if (contains? p :stack)
+                                (when-let [s (stack-of-ref (:stack p))]
+                                  (view-switcher-set-stack w s))
+                                (view-switcher-set-stack w nil))))
+                   :after-children (fn [w p]
+                                     ;; still unbound? the stack was built late
+                                     (when (g/null? (view-switcher-get-stack w))
+                                       (when-let [s (stack-of-ref (:stack p))]
+                                         (view-switcher-set-stack w s))))}
 
    :window-title {:text-prop :title
                   :ctor  (fn [p] (window-title-new (str (:title p ""))
@@ -305,16 +514,30 @@
                   :apply (fn [_ _ _] nil)}
 
    ;; An image from a file -- SVG included, because GdkTexture goes through the
-   ;; pixbuf loaders. A missing or unreadable file leaves the picture empty
-   ;; rather than raising: a logo is decoration, not a reason to fail to start.
+   ;; pixbuf loaders. :content-fit is what to do with the space it is given:
+   ;; :cover fills a card without letterboxing, :contain keeps the whole image.
+   ;; :can-shrink lets it go below the texture's own size, which a responsive
+   ;; grid needs. A missing or unreadable file leaves the picture empty rather
+   ;; than raising: a logo is decoration, not a reason to fail to start.
+   ;; :texture / :paintable are synonyms for :file here -- all three name a
+   ;; file, and a paintable kept from earlier is the other way to say it.
    :picture      {:text-prop :file
                   :ctor  (fn [p]
                            (doto (picture-new)
-                             (picture-set-content-fit 0)   ; CONTAIN
-                             (set-picture-file! (:file p))))
+                             (picture-set-content-fit
+                              (get g/content-fit (:content-fit p :contain) 1))
+                             (g/picture-set-can-shrink (g/->gbool (:can-shrink p true)))
+                             (set-picture-file! (or (:file p) (:texture p) (:paintable p)))))
                   :apply (fn [w p changed]
-                           (when (contains? changed :file)
-                             (set-picture-file! w (:file p))))}
+                           (when (or (contains? changed :file)
+                                     (contains? changed :texture)
+                                     (contains? changed :paintable))
+                             (set-picture-file! w (or (:file p) (:texture p) (:paintable p))))
+                           (when (contains? changed :content-fit)
+                             (picture-set-content-fit
+                              w (get g/content-fit (:content-fit p :contain) 1)))
+                           (when (contains? changed :can-shrink)
+                             (g/picture-set-can-shrink w (g/->gbool (:can-shrink p true)))))}
 
    ;; Motion, declaratively. :page is an index; when it changes, :apply
    ;; animates there. So an animation is a side effect of a prop change and the
@@ -375,6 +598,13 @@
 ;; ---------------------------------------------------------------------------
 ;; install
 ;; ---------------------------------------------------------------------------
+
+(ui/register-signal!
+  :on-switch
+  "notify::visible-child-name"
+  (fn [f w _args]
+    ;; the page that is showing now, by name
+    (f (view-stack-get-visible-name w))))
 
 (defn toast!
   "Shows a toast over a :toast-overlay widget. Find the overlay in the live

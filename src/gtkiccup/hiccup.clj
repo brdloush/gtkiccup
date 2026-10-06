@@ -27,6 +27,31 @@
   [x]
   (or (string? x) (number? x)))
 
+(defn- child-run?
+  "True when x is a run of children rather than one child.
+
+   A widget vector's head is a tag -- a keyword or an fn -- so a vector whose
+   head is itself a vector cannot be a widget form; it is (mapv ...) or
+   (mapcat ...) output, a run of siblings that must be spliced like a seq.
+   Without this, a vector-returning form like (mapv cover-card cards) arrives
+   as a single child whose tag is the whole run, and is rejected as an unknown
+   widget."
+  [x]
+  (and (vector? x) (or (empty? x) (vector? (first x)))))
+
+(defn- spliced
+  "Flattens child collections: a lazy seq (map, filter, for) splices like
+   always, and so does a vector that is not a widget form (mapv, mapcat,
+   vec). Nested runs splice too -- (mapv splice-ish things) is the whole point
+   of building a view out of helpers."
+  [xs]
+  (mapcat (fn [x]
+            (cond
+              (nil? x) []
+              (or (seq? x) (child-run? x)) (spliced x)
+              :else [x]))
+          xs))
+
 (defn- hiccup-error! [msg data]
   (throw (ex-info msg data)))
 
@@ -73,7 +98,7 @@
                          {:tag tag :known (set (keys @w/widgets))}))
                props (if (map? (first more)) (first more) {})
                kids  (->> (if (map? (first more)) (rest more) more)
-                          (mapcat #(if (seq? %) % [%]))
+                          spliced
                           (remove nil?))
                _     (run! #(when-not (or (vector? %) (text-like? %))
                               (bad-child! % tag))

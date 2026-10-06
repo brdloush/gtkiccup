@@ -169,7 +169,15 @@
   (when (contains? changed :halign)
     (g/widget-set-halign w (get g/align (get props :halign :fill) 0)))
   (when (contains? changed :valign)
-    (g/widget-set-valign w (get g/align (get props :valign :fill) 0))))
+    (g/widget-set-valign w (get g/align (get props :valign :fill) 0)))
+  ;; :overflow hidden is what lets border-radius clip a picture -- CSS cannot
+  ;; do it on its own, so a rounded cover needs this.
+  (when (contains? changed :overflow)
+    (g/widget-set-overflow w (get g/overflow (get props :overflow :visible) 0)))
+  (when (contains? changed :visible)
+    (g/widget-set-visible w (g/->gbool (get props :visible true))))
+  (when (contains? changed :direction)
+    (g/widget-set-direction w (get g/direction (get props :direction :ltr) 0))))
 
 ;; ---------------------------------------------------------------------------
 ;; widget specs
@@ -187,6 +195,32 @@
                    (g/box-insert-child-after parent child sibling))
    :remove    (fn [parent child _props] (g/box-remove parent child))
    :container true})
+
+(defn- image-texture!
+  "Puts the pixels from `path` into `image` as a GdkTexture, and returns the
+   image so it composes into a constructor's doto. The image takes its own
+   reference, so the one from the loader goes straight away. A file that is not
+   there leaves the image empty rather than raising: a missing picture is
+   decoration, not a reason to fail to start."
+  [image path]
+  (when-let [tex (g/texture-file path)]
+    (g/image-set-from-paintable image tex)
+    (g/object-unref tex))
+  image)
+
+(defn- menu-button-props!
+  "The look of a menu button in one pass: icon or label (the same slot), the
+   frame, the primary look. Called when the widget is built and again whenever
+   one of those changes; re-setting all of them is cheaper than tracking which
+   moved, and keeps the prop list in one place."
+  [w p]
+  (g/menu-button-set-has-frame w (g/->gbool (:has-frame p false)))
+  (g/menu-button-set-primary w (g/->gbool (:primary p false)))
+  (when-let [i (:icon p)]
+    (g/menu-button-set-icon-name w i))
+  (when-let [l (:label p)]
+    (g/menu-button-set-label w (str l)))
+  w)
 
 (def widgets
   "tag -> widget spec. An atom so an optional namespace -- gtk.adw, say -- can
@@ -263,25 +297,54 @@
                          (g/overlay-remove-overlay parent child)
                          (g/overlay-set-child parent nil)))}
 
+   ;; A bar with something at each end and something centred. :slot :start and
+   ;; :slot :end pin the sides, anything else (no :slot) is the centred child.
+   ;; GtkCenterBox allows one widget per slot, so a second child in a slot
+   ;; replaces the first -- a box inside is how you pack more.
+   :center-box {:ctor   (fn [_] (g/center-box-new))
+                :apply  (fn [_ _ _] nil)
+                :append (fn [parent child props]
+                          (case (:slot props :center)
+                            :start (g/center-box-set-start-widget parent child)
+                            :end   (g/center-box-set-end-widget parent child)
+                            (g/center-box-set-center-widget parent child)))
+                :remove (fn [parent child props]
+                          (case (:slot props :center)
+                            :start (g/center-box-set-start-widget parent nil)
+                            :end   (g/center-box-set-end-widget parent nil)
+                            (g/center-box-set-center-widget parent nil)))}
+
    ;; :icon takes a theme name, :file takes a path -- an SVG works either way.
    ;; GtkImage's pixel-size is an actual size, not a minimum, so it scales a
    ;; high-resolution source down cleanly.
+   ;; :icon is a theme name, :file a path -- both go through the same loaders.
+   ;; :texture is a bitmap: it is loaded into a GdkTexture and handed to the
+   ;; image as a paintable, which is how a cropped screenshot cover shows up
+   ;; at any size the layout asks for. The image takes its own reference, so
+   ;; the pixels live as long as the widget that shows them.
    :icon   {:text-prop :icon
             :ctor  (fn [p]
-                     (doto (if (:file p)
-                             (g/image-new-from-file (str (:file p)))
-                             (g/image-new-from-icon (:icon p)))
+                     (doto (cond (:texture p) (image-texture! (g/image-new) (:texture p))
+                                 (:file p) (g/image-new-from-file (str (:file p)))
+                                 :else   (g/image-new-from-icon (:icon p)))
                        (g/image-set-pixel-size (int (:size p -1)))))
             :apply (fn [w p changed]
-                     (when (contains? changed :file)
-                       (g/image-set-from-file w (str (:file p))))
-                     (when (and (contains? changed :icon) (not (:file p)))
+                     (when (or (contains? changed :file) (contains? changed :texture))
+                       (if-let [t (:texture p)]
+                         (image-texture! w t)
+                         (g/image-set-from-file w (str (:file p)))))
+                     (when (and (contains? changed :icon) (not (:file p)) (not (:texture p)))
                        (g/image-set-from-icon w (:icon p)))
                      (when (contains? changed :size)
                        (g/image-set-pixel-size w (int (:size p -1)))))}
 
    ;; :markup is Pango markup and wins over :label when both are given. Whatever
    ;; builds it must escape first -- see the deck example's `escape`.
+   ;; A label's shape is set by the props that decide how much of a string fits
+   ;; and what happens when it does not: :ellipsize (a title is more useful
+   ;; truncated than wrapped twice), :lines (a two-line card title),
+   ;; :max-width-chars (:width-chars asks for a width, :max-width-chars caps
+   ;; one), plus alignment, justification and wrapping.
    :label  {:text-prop :label
             :ctor  (fn [p]
                      (let [w (g/label-new nil)]
@@ -290,6 +353,14 @@
                          (g/label-set-text w (str (:label p ""))))
                        (g/label-set-wrap w (g/->gbool (:wrap p)))
                        (when-let [x (:xalign p)] (g/label-set-xalign w (float x)))
+                       (when-let [y (:yalign p)] (g/label-set-yalign w (float y)))
+                       (g/label-set-ellipsize w (get g/ellipsize (:ellipsize p :none) 0))
+                       (g/label-set-lines w (int (:lines p -1)))
+                       (g/label-set-max-width-chars w (int (:max-width-chars p -1)))
+                       (g/label-set-width-chars w (int (:width-chars p -1)))
+                       (g/label-set-justify w (get g/justify (:justify p :left) 0))
+                       (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :none) 0))
+                       (g/label-set-selectable w (g/->gbool (:selectable p)))
                        w))
             :apply (fn [w p changed]
                      (when (or (contains? changed :markup) (contains? changed :label))
@@ -299,13 +370,45 @@
                      (when (contains? changed :wrap)
                        (g/label-set-wrap w (g/->gbool (:wrap p))))
                      (when (contains? changed :xalign)
-                       (g/label-set-xalign w (float (:xalign p 0.5)))))}
+                       (g/label-set-xalign w (float (:xalign p 0.5))))
+                     (when (contains? changed :yalign)
+                       (g/label-set-yalign w (float (:yalign p 0.5))))
+                     (when (contains? changed :ellipsize)
+                       (g/label-set-ellipsize w (get g/ellipsize (:ellipsize p :none) 0)))
+                     (when (contains? changed :lines)
+                       (g/label-set-lines w (int (:lines p -1))))
+                     (when (contains? changed :max-width-chars)
+                       (g/label-set-max-width-chars w (int (:max-width-chars p -1))))
+                     (when (contains? changed :width-chars)
+                       (g/label-set-width-chars w (int (:width-chars p -1))))
+                     (when (contains? changed :justify)
+                       (g/label-set-justify w (get g/justify (:justify p :left) 0)))
+                     (when (contains? changed :wrap-mode)
+                       (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :none) 0)))
+                     (when (contains? changed :selectable)
+                       (g/label-set-selectable w (g/->gbool (:selectable p)))))}
 
+   ;; A button is either a label or one child: an icon with a caption under
+   ;; it, a cover with a play badge over it, a row of controls. When it has a
+   ;; child the :label prop is not shown -- that is GTK's rule, not ours.
    :button {:text-prop :label
-            :ctor  (fn [p] (g/button-new-with-label (str (:label p ""))))
+            :ctor  (fn [p]
+                     (let [w (g/button-new-with-label (str (:label p "")))]
+                       (g/button-set-has-frame w (g/->gbool (:has-frame p true)))
+                       ;; an icon is the other way to say what a button is --
+                       ;; and must be set on the way in, because :apply is not
+                       ;; told about props the widget was built with
+                       (when-let [i (:icon p)] (g/button-set-icon-name w i))
+                       w))
             :apply (fn [w p changed]
                      (when (contains? changed :label)
-                       (g/button-set-label w (str (:label p "")))))}
+                       (g/button-set-label w (str (:label p ""))))
+                     (when (contains? changed :icon)
+                       (g/button-set-icon-name w (:icon p)))
+                     (when (contains? changed :has-frame)
+                       (g/button-set-has-frame w (g/->gbool (:has-frame p true)))))
+            :append (fn [parent child _props] (g/button-set-child parent child))
+            :remove (fn [parent _child _props] (g/button-set-child parent nil))}
 
    :entry  {:text-prop :value
             :ctor  (fn [p]
@@ -321,6 +424,91 @@
                        (let [v (str (:value p ""))]
                          (when (not= v (g/editable-get-text w))
                            (g/editable-set-text w v)))))}
+
+   ;; A line. Horizontal by default; :orientation :vertical puts it between two
+   ;; cells of a row, where the height is what it has to follow.
+   :separator {:ctor  (fn [p] (g/separator-new (if (= :vertical (:orientation p)) 1 0)))
+               :apply (fn [w p changed]
+                        (when (contains? changed :orientation)
+                          (g/orientable-set-orientation w
+                                                        (if (= :vertical (:orientation p)) 1 0))))}
+
+   ;; A range: the seek bar, the volume slider. Created with min/max/step
+   ;; because that is what sets the adjustment's increments. The value is
+   ;; written only when it really differs -- the same reason :entry guards it:
+   ;; a value that is pushed every frame fights the user's drag.
+   ;;
+   ;; :on-change-value (the change-value signal) is registered by this
+   ;; namespace; returning nothing from it means "not handled", so GTK moves
+   ;; the knob itself and the state catches up on the next render.
+   ;; GtkScale has no step-less constructor that takes a range:
+   ;; gtk_scale_new_with_range asserts step != 0 and hands back NULL, which
+   ;; then poisons every later call on the widget. A step of 1 is what the
+   ;; keyboard increments would be anyway, and an explicit :step 0 is coerced
+   ;; to it rather than crashing the whole render.
+   :scale {:ctor  (fn [p]
+                    (doto (g/scale-new-with-range (double (:min p 0))
+                                                  (double (:max p 1))
+                                                  (let [s (double (:step p 1.0))]
+                                                    (if (zero? s) 1.0 s)))
+                      (g/range-set-value (double (:value p (:min p 0))))
+                      (g/scale-set-draw-value (g/->gbool (:draw-value p false)))
+                      (g/range-set-inverted (g/->gbool (:inverted p false)))
+                      (g/scale-set-orientation (if (= :vertical (:orientation p)) 1 0))))
+           :apply (fn [w p changed]
+                    (when (or (contains? changed :min) (contains? changed :max))
+                      ;; the bounds live on the adjustment, so moving them
+                      ;; leaves a drag in progress alone
+                      (when-let [a (g/range-get-adjustment w)]
+                        (g/adjustment-set-lower a (double (:min p 0)))
+                        (g/adjustment-set-upper a (double (:max p 1)))))
+                    (when (contains? changed :step)
+                      (g/range-set-increments w (double (:step p 0)) 0))
+                    (when (contains? changed :draw-value)
+                      (g/scale-set-draw-value w (g/->gbool (:draw-value p false))))
+                    (when (contains? changed :inverted)
+                      (g/range-set-inverted w (g/->gbool (:inverted p false))))
+                    (when (contains? changed :digits)
+                      (g/scale-set-digits w (int (:digits p 1))))
+                    (when (contains? changed :orientation)
+                      (g/scale-set-orientation w (if (= :vertical (:orientation p)) 1 0)))
+                    ;; last: setting the value is what a drag changes, and it
+                    ;; is written only when it really differs -- the same guard
+                    ;; :entry uses, so the app and the slider do not fight.
+                    ;; Dropping :value falls back to the lower bound.
+                    (when (contains? changed :value)
+                      (let [v (double (get p :value (:min p 0)))]
+                        (when (not= v (g/range-get-value w))
+                          (g/range-set-value w v)))))}
+
+   ;; Keeps a child at a fixed ratio, which is what a square cover strip is
+   ;; made of. :ratio 1 is a square; :obey-child false lets the frame decide
+   ;; the size on its own (the default lets the child's aspect rule).
+   :aspect-frame {:ctor   (fn [p]
+                            (doto (g/aspect-frame-new (float (:xalign p 0.5))
+                                                      (float (:yalign p 0.5))
+                                                      (float (:ratio p 1.0))
+                                                      (g/->gbool (:obey-child p true)))
+                              ))
+                  :apply  (fn [w p changed]
+                            (when (contains? changed :ratio)
+                              (g/aspect-frame-set-ratio w (float (:ratio p 1.0))))
+                            (when (contains? changed :obey-child)
+                              (g/aspect-frame-set-obey-child w (g/->gbool (:obey-child p true)))))
+                  :append (fn [parent child _props] (g/aspect-frame-set-child parent child))
+                  :remove (fn [parent _child _props] (g/aspect-frame-set-child parent nil))}
+
+   ;; A button that opens something. Without :menu or :popover it is inert,
+   ;; which is what a visual mock wants; the props that show it -- icon, label,
+   ;; frame, the primary look -- are the part that has to be right.
+   :menu-button {:text-prop :label
+                 :ctor   (fn [p] (menu-button-props! (g/menu-button-new) p))
+                 :apply  (fn [w p changed]
+                           (when (or (changed :icon) (changed :label)
+                                     (changed :has-frame) (changed :primary))
+                             (menu-button-props! w p)))
+                 :append (fn [parent child _props] (g/menu-button-set-child parent child))
+                 :remove (fn [parent _child _props] (g/menu-button-set-child parent nil))}
 
    :check  {:text-prop :label
             :ctor  (fn [p]
@@ -343,7 +531,23 @@
 
 (defn register-signal!
   "Adds an :on-* prop. `signal` is the GTK signal name; `invoke` is
-   (fn [user-fn widget] ...) and decides what the handler receives."
-  [prop signal invoke]
-  (swap! signals assoc prop {:signal signal :invoke invoke})
-  prop)
+   (fn [user-fn widget raw-args] ...) and decides what the handler receives.
+
+   `opts` is optional and carries what the callback's C signature has to be:
+   :argtypes (default the two pointers every signal starts with) and :rettype
+   (default :void). Signals that pass more than a widget and an event -- the
+   change-value of a range, say -- need the right argtypes, because a closure
+   reads its arguments by position and cannot guess them."
+  ([prop signal invoke] (register-signal! prop signal invoke nil))
+  ([prop signal invoke opts]
+   (swap! signals assoc prop (merge {:signal signal :invoke invoke} opts))
+   prop))
+
+;; The signal that tells the app the user moved a slider. Its arguments are
+;; (range, scroll-type, value, data), and returning nothing (which becomes 0,
+;; i.e. "not handled") lets GTK move the knob itself -- the state catches up on
+;; the next render, so a drag is never fought by the app.
+(register-signal!
+  :on-change-value "change-value"
+  (fn [f _w args] (f (double (nth args 2))))
+  {:argtypes [:pointer :int :double :pointer] :rettype :int})

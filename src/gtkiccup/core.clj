@@ -22,6 +22,7 @@
             [gtkiccup.ffi :as g]
             [gtkiccup.hiccup :as h]
             [gtkiccup.ratom :as ra]
+            [gtkiccup.refs :as refs]
             [gtkiccup.renderer :as r]
             [gtkiccup.widgets :as w]))
 
@@ -319,5 +320,8 @@
           (g/window-destroy win)
           (loop [i 0] (when (and (< i 64) (g/<-gbool (g/main-iteration nil 0)))
                         (recur (inc i)))))
+        ;; the widgets are gone, so the named refs are stale -- drop them so a
+        ;; later run in the same process cannot resolve a dead widget
+        (refs/clear!)
         (reset! current nil)))
     nil))

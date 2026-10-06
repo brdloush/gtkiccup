@@ -33,6 +33,7 @@
      by `gtkiccup.hiccup/normalize`, so Replicant never makes a text node."
   (:require [gtkiccup.ffi :as g]
             [gtkiccup.hiccup :as h]
+            [gtkiccup.refs :as refs]
             [gtkiccup.widgets :as w]
             [replicant.core :as rc]
             [replicant.protocols :as rp]))
@@ -53,6 +54,18 @@
   (atom {:tag ::root :spec spec :props {} :classes #{}
          :widget window :kids [] :attached [] :handlers {}}))
 
+(defn- note-ref!
+  "Points the element's :ref name at its widget: the old name is dropped when
+   the name changes, the new one registered. A name recorded before the widget
+   exists is still just a name -- building the widget calls this again, and
+   that is when it takes effect. See gtkiccup.refs."
+  [el name]
+  (let [{:keys [widget ref-name]} @el]
+    (when (and widget ref-name (not= ref-name name))
+      (refs/unregister! ref-name widget))
+    (when (and widget name) (refs/register! name widget))
+    (swap! el assoc :ref-name name)))
+
 (defn- widget!
   "The element's widget, constructed on first call from the props Replicant has
    set by now."
@@ -62,6 +75,7 @@
             wp ((:ctor spec) props)]
         (g/object-ref-sink wp)
         (swap! el assoc :widget wp :changed #{})
+        (note-ref! el (:ref props))
         (w/apply-common! wp props (set (keys props)))
         ((:apply spec) wp props #{})                 ; ctor already set the basics
         (doseq [c classes] (g/widget-add-css-class wp c))
@@ -137,8 +151,10 @@
    disposing it unparents the children, which our own references keep alive
    until theirs are dropped too."
   [el]
-  (let [{:keys [widget handlers kids]} @el]
+  (let [{:keys [widget handlers kids ref-name]} @el]
     (swap! el assoc :released? true)
+    ;; the name it held is gone with it -- see gtkiccup.refs
+    (when (and widget ref-name) (refs/unregister! ref-name widget))
     (doseq [[_ holder] handlers] (reset! holder nil))
     (when widget (owe! :releases widget))
     (run! release! kids)))
@@ -148,11 +164,21 @@
   (touch! parent)
   (release! child))
 
-(defn- gtk-remove! [parent child]
-  ((:remove (:spec @parent)) (:widget @parent) (:widget @child) (:props @child)))
-
+;; Which slot a child really sits in is a fact about GTK, not about its props:
+;; props are applied before the structure is synced, so on a re-render the
+;; element's :slot is already the *new* one by the time :remove runs. A keyed
+;; reorder that moves a child from one slot to another would otherwise clear
+;; the wrong slot -- the child stays put, and the new set_* call says it is
+;; still parented. So remember the slot from the append and hand that back to
+;; the remove.
 (defn- gtk-append! [parent child]
-  ((:append (:spec @parent)) (widget! parent) (widget! child) (:props @child)))
+  (let [props (:props @child)]
+    (swap! child assoc :shown-slot (:slot props))
+    ((:append (:spec @parent)) (widget! parent) (widget! child) props)))
+
+(defn- gtk-remove! [parent child]
+  ((:remove (:spec @parent)) (:widget @parent) (:widget @child)
+   {:slot (:shown-slot @child)}))
 
 (defn- sync-children!
   "Makes the GTK children of `parent` match its mirror."
@@ -242,13 +268,15 @@
      (fn [_ el a v _opts]
        (let [k (keyword a)]
          (swap! el assoc-in [:props k] (unbox v))
+         (when (= :ref k) (note-ref! el (unbox v)))
          (prop-changed! el k)))
 
      `rp/remove-attribute
      (fn [_ el a]
        (let [k (keyword a)]
          (swap! el update :props dissoc k)
-         (prop-changed! el k)))                ; a removed prop falls back to its default
+         (when (= :ref k) (note-ref! el nil))
+         (prop-changed! el k)))              ; a removed prop falls back to its default
 
      `rp/add-class
      (fn [_ el cn]

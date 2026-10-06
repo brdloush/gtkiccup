@@ -116,7 +116,96 @@
 (defcfn overlay-add-overlay "gtk_overlay_add_overlay" [:pointer :pointer] :void)
 (defcfn overlay-remove-overlay "gtk_overlay_remove_overlay" [:pointer :pointer] :void)
 
+;; A box that keeps its middle child centred. The three slots are how a bar
+;; with buttons at both ends and a centred title gets laid out, so a header
+;; needs no alignment hacks.
+(defcfn center-box-new "gtk_center_box_new" [] :pointer)
+(defcfn center-box-set-start-widget "gtk_center_box_set_start_widget" [:pointer :pointer] :void)
+(defcfn center-box-set-center-widget "gtk_center_box_set_center_widget" [:pointer :pointer] :void)
+(defcfn center-box-set-end-widget "gtk_center_box_set_end_widget" [:pointer :pointer] :void)
+(defcfn center-box-get-start-widget "gtk_center_box_get_start_widget" [:pointer] :pointer)
+(defcfn center-box-get-center-widget "gtk_center_box_get_center_widget" [:pointer] :pointer)
+(defcfn center-box-get-end-widget "gtk_center_box_get_end_widget" [:pointer] :pointer)
+
+;; -- leaf props and small widgets -------------------------------------------
+;; Everything a card, a header or a player row needs, with a getter next to
+;; every setter so a test can read the value back instead of trusting the call.
+(defcfn label-set-ellipsize "gtk_label_set_ellipsize" [:pointer :int] :void)
+(defcfn label-set-lines "gtk_label_set_lines" [:pointer :int] :void)
+(defcfn label-set-max-width-chars "gtk_label_set_max_width_chars" [:pointer :int] :void)
+(defcfn label-set-width-chars "gtk_label_set_width_chars" [:pointer :int] :void)
+(defcfn label-set-justify "gtk_label_set_justify" [:pointer :int] :void)
+(defcfn label-set-wrap-mode "gtk_label_set_wrap_mode" [:pointer :int] :void)
+(defcfn label-set-selectable "gtk_label_set_selectable" [:pointer :int] :void)
+(defcfn label-set-yalign "gtk_label_set_yalign" [:pointer :float] :void)
+(defcfn label-get-ellipsize "gtk_label_get_ellipsize" [:pointer] :int)
+(defcfn label-get-lines "gtk_label_get_lines" [:pointer] :int)
+(defcfn label-get-max-width-chars "gtk_label_get_max_width_chars" [:pointer] :int)
+(defcfn label-get-width-chars "gtk_label_get_width_chars" [:pointer] :int)
+(defcfn label-get-justify "gtk_label_get_justify" [:pointer] :int)
+(defcfn label-get-wrap-mode "gtk_label_get_wrap_mode" [:pointer] :int)
+(defcfn label-get-selectable "gtk_label_get_selectable" [:pointer] :int)
+
+(defcfn widget-set-overflow "gtk_widget_set_overflow" [:pointer :int] :void)
+(defcfn widget-set-visible "gtk_widget_set_visible" [:pointer :int] :void)
+(defcfn widget-set-direction "gtk_widget_set_direction" [:pointer :int] :void)
+(defcfn widget-is-visible "gtk_widget_get_visible" [:pointer] :int)
+
+(defcfn aspect-frame-new "gtk_aspect_frame_new" [:float :float :float :int] :pointer)
+(defcfn aspect-frame-set-child "gtk_aspect_frame_set_child" [:pointer :pointer] :void)
+(defcfn aspect-frame-set-ratio "gtk_aspect_frame_set_ratio" [:pointer :float] :void)
+(defcfn aspect-frame-get-ratio "gtk_aspect_frame_get_ratio" [:pointer] :float)
+(defcfn aspect-frame-set-obey-child "gtk_aspect_frame_set_obey_child" [:pointer :int] :void)
+(defcfn aspect-frame-get-obey-child "gtk_aspect_frame_get_obey_child" [:pointer] :int)
+
+(defcfn separator-new "gtk_separator_new" [:int] :pointer)
+(defcfn orientable-set-orientation "gtk_orientable_set_orientation" [:pointer :int] :void)
+(defcfn orientable-get-orientation "gtk_orientable_get_orientation" [:pointer] :int)
+
+(defcfn scale-new-with-range "gtk_scale_new_with_range" [:double :double :double] :pointer)
+(defcfn scale-set-draw-value "gtk_scale_set_draw_value" [:pointer :int] :void)
+(defcfn scale-get-draw-value "gtk_scale_get_draw_value" [:pointer] :int)
+(defcfn scale-set-digits "gtk_scale_set_digits" [:pointer :int] :void)
+(defcfn scale-get-digits "gtk_scale_get_digits" [:pointer] :int)
+(defcfn scale-set-orientation "gtk_orientable_set_orientation" [:pointer :int] :void)
+(defcfn range-set-value "gtk_range_set_value" [:pointer :double] :void)
+(defcfn range-get-value "gtk_range_get_value" [:pointer] :double)
+(defcfn range-set-inverted "gtk_range_set_inverted" [:pointer :int] :void)
+(defcfn range-get-inverted "gtk_range_get_inverted" [:pointer] :int)
+(defcfn range-set-increments "gtk_range_set_increments" [:pointer :double :double] :void)
+(defcfn range-get-adjustment "gtk_range_get_adjustment" [:pointer] :pointer)
+(defcfn adjustment-set-lower "gtk_adjustment_set_lower" [:pointer :double] :void)
+(defcfn adjustment-set-upper "gtk_adjustment_set_upper" [:pointer :double] :void)
+(defcfn adjustment-get-lower "gtk_adjustment_get_lower" [:pointer] :double)
+(defcfn adjustment-get-step-increment "gtk_adjustment_get_step_increment" [:pointer] :double)
+(defcfn adjustment-get-upper "gtk_adjustment_get_upper" [:pointer] :double)
+(defcfn adjustment-get-value "gtk_adjustment_get_value" [:pointer] :double)
+
+(defcfn menu-button-new "gtk_menu_button_new" [] :pointer)
+(defcfn menu-button-set-icon-name "gtk_menu_button_set_icon_name" [:pointer :string] :void)
+(defcfn menu-button-get-icon-name "gtk_menu_button_get_icon_name" [:pointer] :string)
+(defcfn menu-button-set-label "gtk_menu_button_set_label" [:pointer :string] :void)
+(defcfn menu-button-get-label "gtk_menu_button_get_label" [:pointer] :string)
+(defcfn menu-button-set-child "gtk_menu_button_set_child" [:pointer :pointer] :void)
+(defcfn menu-button-set-has-frame "gtk_menu_button_set_has_frame" [:pointer :int] :void)
+(defcfn menu-button-get-has-frame "gtk_menu_button_get_has_frame" [:pointer] :int)
+(defcfn menu-button-set-primary "gtk_menu_button_set_primary" [:pointer :int] :void)
+(defcfn menu-button-get-primary "gtk_menu_button_get_primary" [:pointer] :int)
+(defcfn menu-button-set-direction "gtk_menu_button_set_direction" [:pointer :int] :void)
+(defcfn menu-button-set-active "gtk_menu_button_set_active" [:pointer :int] :void)
+(defcfn menu-button-get-active "gtk_menu_button_get_active" [:pointer] :int)
+
+(defcfn button-set-child "gtk_button_set_child" [:pointer :pointer] :void)
+(defcfn button-set-has-frame "gtk_button_set_has_frame" [:pointer :int] :void)
+(defcfn button-get-has-frame "gtk_button_get_has_frame" [:pointer] :int)
+(defcfn button-set-icon-name "gtk_button_set_icon_name" [:pointer :string] :void)
+
+(defcfn image-set-from-paintable "gtk_image_set_from_paintable" [:pointer :pointer] :void)
+(defcfn picture-set-can-shrink "gtk_picture_set_can_shrink" [:pointer :int] :void)
+(defcfn texture-from-filename "gdk_texture_new_from_filename" [:string :pointer] :pointer)
+
 ;; -- image ------------------------------------------------------------------
+(defcfn image-new "gtk_image_new" [] :pointer)
 (defcfn image-new-from-icon "gtk_image_new_from_icon_name" [:string] :pointer)
 (defcfn image-new-from-file "gtk_image_new_from_file" [:string] :pointer)
 (defcfn image-set-from-file "gtk_image_set_from_file" [:pointer :string] :void)
@@ -224,6 +313,17 @@
    CRITICALs."
   [p]
   (ffi/null? p))
+
+(defn texture-file
+  "The GdkTexture for an image file, or nil when it is not there. A missing
+   picture is decoration, not a reason to fail to start -- so this reports it
+   as nil instead of letting GdkLog a critical through."
+  [path]
+  (when path
+    (try
+      (let [t (texture-from-filename (str path) ffi/null)]
+        (when-not (null? t) t))
+      (catch Throwable _ nil))))
 (def HORIZONTAL 0)
 (def VERTICAL 1)
 
@@ -232,8 +332,37 @@
   {:fill 0 :start 1 :end 2 :center 3 :baseline 4})
 
 (def policy
-  "GtkPolicyType, for a scrolled window's scrollbars."
+  "GtkPolicyType, for a scrolled window's scrollbars. :external is what a
+   horizontal strip wants: the scrollbar is not the user's, it is the app's."
   {:always 0 :automatic 1 :never 2 :external 3})
+
+(def ellipsize
+  "PangoEllipsizeMode. :middle is what card titles and rows use -- the middle
+   of a title is the part you can afford to lose."
+  {:none 0 :start 1 :middle 2 :end 3})
+
+(def justify
+  "GtkJustification."
+  {:left 0 :right 1 :center 2 :fill 3})
+
+(def wrap-mode
+  "PangoWrapMode."
+  {:none 0 :char 1 :word 2 :word-char 3})
+
+(def overflow
+  "GtkOverflow. :hidden is what makes border-radius clip a picture: without it
+   a rounded cover shows square corners."
+  {:visible 0 :hidden 1 :mask 2})
+
+(def direction
+  "GtkTextDirection."
+  {:ltr 0 :rtl 1})
+
+(def content-fit
+  "GtkContentFit -- what a picture does with the space it is given. :cover is
+   what fills a rounded card without letterboxing; :contain keeps the whole
+   image visible; :scale-down only shrinks."
+  {:fill 0 :contain 1 :cover 2 :scale-down 3})
 
 (defn ->gbool [x] (if x 1 0))
 (defn <-gbool [x] (not (zero? x)))
