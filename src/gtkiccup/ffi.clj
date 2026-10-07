@@ -23,6 +23,7 @@
 (defcfn gtk-init "gtk_init" [] :void)
 (defcfn main-iteration "g_main_context_iteration" [:pointer :int] :int)
 (defcfn idle-add "g_idle_add" [:pointer :pointer] :int)
+(defcfn timeout-add "g_timeout_add" [:uint :pointer :pointer] :int)
 
 ;; -- object lifetime ---------------------------------------------------------
 ;; A widget is floating until a container sinks it, and a container drops it
@@ -157,6 +158,8 @@
 (defcfn widget-set-visible "gtk_widget_set_visible" [:pointer :int] :void)
 (defcfn widget-set-direction "gtk_widget_set_direction" [:pointer :int] :void)
 (defcfn widget-is-visible "gtk_widget_get_visible" [:pointer] :int)
+(defcfn widget-is-mapped "gtk_widget_get_mapped" [:pointer] :int)
+(defcfn widget-is-realized "gtk_widget_get_realized" [:pointer] :int)
 
 (defcfn aspect-frame-new "gtk_aspect_frame_new" [:float :float :float :int] :pointer)
 (defcfn aspect-frame-set-child "gtk_aspect_frame_set_child" [:pointer :pointer] :void)
