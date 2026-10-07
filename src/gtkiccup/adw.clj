@@ -61,6 +61,10 @@
 (defcfn application-object-new "g_object_new" [:long :pointer] :pointer)
 (defcfn application-set-id "g_application_set_application_id" [:pointer :string] :void)
 (defcfn application-get-id "g_application_get_application_id" [:pointer] :string)
+;; GApplicationFlags is a bit-flag enum, passed as an int. 32 =
+;; G_APPLICATION_NON_UNIQUE (1<<5): register without grabbing the D-Bus name, so
+;; a stuck instance can't claim the id and poison new launches.
+(defcfn application-set-flags "g_application_set_flags" [:pointer :int] :void)
 (defcfn application-register "g_application_register" [:pointer :pointer :pointer] :int)
 (defcfn application-activate "g_application_activate" [:pointer] :void)
 (defcfn application-window-new "adw_application_window_new" [:pointer] :pointer)
@@ -229,6 +233,12 @@
                   (let [a (application-object-new (application-get-type) ffi/null)]
                     (when app-id
                       (application-set-id a (str app-id)))
+                    ;; Register non-unique. By default a registered app owns its
+                    ;; D-Bus name; if a previous instance is stuck alive, the new
+                    ;; launch hands activation to it and the new window never
+                    ;; maps. NON-UNIQUE skips the name negotiation so every
+                    ;; launch is independent. Must be set before register.
+                    (application-set-flags a 32)
                     (application-register a nil nil)
                     (g/signal-connect-data a "activate" @noop nil nil 0)
                     (g/signal-connect-data a "startup" @noop nil nil 0)
