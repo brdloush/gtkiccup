@@ -100,6 +100,11 @@
 ;; -- signals ----------------------------------------------------------------
 (defcfn signal-connect-data "g_signal_connect_data"
   [:pointer :string :pointer :pointer :pointer :int] :long)
+(defcfn signal-handlers-disconnect-by-func
+  "g_signal_handlers_disconnect_by_func"
+  [:pointer :pointer :pointer] :long)
+(defcfn widget-remove-controller "gtk_widget_remove_controller"
+  [:pointer :pointer] :void)
 
 ;; -- window -----------------------------------------------------------------
 (defcfn window-new "gtk_window_new" [] :pointer)

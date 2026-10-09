@@ -155,7 +155,14 @@
     (swap! el assoc :released? true)
     ;; the name it held is gone with it -- see gtkiccup.refs
     (when (and widget ref-name) (refs/unregister! ref-name widget))
-    (doseq [[_ holder] handlers] (reset! holder nil))
+    ;; Quieten this element's handlers. Their FFI callbacks are NOT freed here:
+    ;; connect! attached a destroy-notify that GTK fires when the widget is
+    ;; finalized (the unref below), which releases the callback's arena. reset!
+    ;; only keeps any straggler call quiet until that finalize lands.
+    (doseq [[_ holder] handlers]
+      ;; Quieten the handler; the C callback is freed by the destroy-notify that
+      ;; connect! attached, which GTK fires when this widget is finalized.
+      (reset! holder nil))
     (when widget (owe! :releases widget))
     (run! release! kids)))
 

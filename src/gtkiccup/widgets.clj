@@ -86,10 +86,41 @@
   controllers
   (atom []))
 
+;; cb-pointer -> the arena owning that callback's trampoline. free-notify looks
+;; a connection up here so it can close the arena when GTK drops the handler.
+(def arena->cb (atom {}))
+
+(defn- free-notify!
+  "The destroy-notify handed to g_signal_connect_data. GTK calls it when the
+   connection is removed -- on explicit disconnect or when the instance is
+   finalized -- as (data closure). `data` is the user_data we passed, which is
+   the callback pointer, so it maps back to the arena that owns this callback.
+   Closing that arena releases the trampoline and the closure's captures, which
+   is what stops connections accumulating across navigation churn."
+  [data _closure]
+  (when-let [arena (get @arena->cb data)]
+    (swap! arena->cb dissoc data)
+    (.close arena))
+  nil)
+
+;; The single GClosureNotify trampoline: global-arena so it is valid for the
+;; whole process; per-connection identity lives in `arena->cb`, not in extra
+;; callbacks. Must not be freed -- GTK may fire it long after any given connect.
+(def free-notify
+  (ffi/callback (ffi/global-arena) free-notify! [:pointer :pointer] :void))
+
 (defn connect!
   "Connects one signal to a stable C callback that reads the current handler out
    of `holder`. The closure captured at creation time therefore never goes stale
-   when a later render supplies a new handler fn."
+   when a later render supplies a new handler fn.
+
+   The callback lives in a dedicated arena and g_signal_connect_data is handed
+   `free-notify` as its destroy-notify. When the widget is torn down (finalized
+   via release!'s unref, or an explicit disconnect) GTK invokes the notify,
+   which closes the arena and frees the callback + closure. That is what stops
+   connections piling up across navigation churn -- the leak that exhausted
+   -Xmx. The callback stays valid until then, since GTK fires the notify only
+   after it has stopped calling back."
   [widget prop holder]
   (let [{:keys [signal invoke argtypes rettype controller attach]
          :or   {argtypes [:pointer :pointer] rettype :void}} (@signals prop)
@@ -101,7 +132,8 @@
                               (number? v) v
                               v           1
                               :else       0))
-        cb (ffi/callback (ffi/global-arena)
+        arena (ffi/shared-arena)
+        cb (ffi/callback arena
                          (fn [& args]
                            ;; never let an exception cross back into C
                            (try
@@ -111,7 +143,10 @@
                                (report! (str prop " handler failed") t)
                                (->ret nil))))
                          argtypes rettype)]
-    (g/signal-connect-data target signal cb nil nil 0)
+    ;; Register before connecting so a teardown fired during connect still finds
+    ;; it. user_data = cb lets free-notify locate this exact connection.
+    (swap! arena->cb assoc cb arena)
+    (g/signal-connect-data target signal cb cb free-notify 0)
     (when controller
       ;; :window because key events go to the toplevel; a controller on a
       ;; widget that never takes focus would never fire
@@ -123,6 +158,7 @@
         (g/widget-add-controller host target)
         (swap! controllers conj {:prop prop :controller target :host host})))
     target))
+
 
 ;; ---------------------------------------------------------------------------
 ;; common props
