@@ -198,3 +198,19 @@ a save. Keep `ui/run` out of the top level or a save opens a second window.
 
 `test/dev_test.clj` drives all four against a live window and reads the results
 out of the real `GtkLabel`.
+
+### Enum introspection: `bb dev/enum.clj`
+
+Enum values are not in any header, and guessing one is quietly wrong:
+`AdwViewSwitcherPolicy` is `:narrow 0 / :wide 1` in this libadwaita -- the
+responsive pair, not the old always/never triple. `dev/enum.clj` reads the
+values out of the GIR typelib instead:
+
+```bash
+bb dev/enum.clj Adw ViewSwitcherPolicy   # narrow 0, wide 1
+bb dev/enum.clj Gtk ContentFit 4.0       # fill 0, contain 1, cover 2, scale_down 3
+```
+
+The last argument is the typelib version, defaulting to `1` -- `Gtk` needs
+`4.0`. This is how the enum maps in `gtkiccup.ffi` and
+`gtkiccup.adw/VIEW-SWITCHER-POLICY` get found rather than made up.

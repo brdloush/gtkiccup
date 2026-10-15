@@ -124,11 +124,16 @@
 (assert (= 0 (first @render-h)) "the first render runs before layout")
 (assert (pos? (first @layout-h)) ":on-layout should see the label laid out, from the first frame")
 ;; it follows paints, not a timer: a quiet window stops calling it. A stray
-;; pointer over the window can repaint a little, so this only rules out a loop.
+;; pointer over the window can repaint a little, and so can the rest of the
+;; desktop -- measured here between 0 and 15 calls in a second depending on what
+;; else is running. What this rules out is a *loop*: a self-feeding :on-layout
+;; repaints every frame, about 60/s, so the bound sits well above the noise and
+;; still far below the frame rate.
 (def settled (count @layout-h))
 (Thread/sleep 1000)
-(println "   calls during a quiet second:" (- (count @layout-h) settled))
-(assert (< (- (count @layout-h) settled) 10) ":on-layout should not run while nothing paints")
+(def quiet (- (count @layout-h) settled))
+(println "   calls during a quiet second:" quiet)
+(assert (< quiet 40) ":on-layout should not run while nothing paints")
 (ui/close!)
 (assert (nil? (deref th3 3000 :TIMEOUT)))
 

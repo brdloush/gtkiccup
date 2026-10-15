@@ -8,6 +8,9 @@
 (defcfn row-get-subtitle "adw_action_row_get_subtitle" [:pointer] :string)
 (defcfn title-get-title "adw_window_title_get_title" [:pointer] :string)
 (defcfn title-get-subtitle "adw_window_title_get_subtitle" [:pointer] :string)
+(defcfn status-get-title "adw_status_page_get_title" [:pointer] :string)
+(defcfn status-get-description "adw_status_page_get_description" [:pointer] :string)
+(defcfn status-get-icon "adw_status_page_get_icon_name" [:pointer] :string)
 
 (g/gtk-init)
 (def normalize @#'ui/normalize)
@@ -133,5 +136,31 @@
 ;; --- 5. toast! does not blow up ----------------------------------------
 (adw/toast! overlay "hello from a test")
 (println "5) toast shown ok")
+
+;; --- 6. the tags no test named before this file --------------------------
+;; :status-page used to apply :title only in the ctor, so a first frame that
+;; asked for a description and an icon got neither -- they appeared only once
+;; something *changed* them. Now all three land at construction.
+(def sp (:widget (reconcile root-spec win nil
+                            (normalize [:status-page {:title "Empty"
+                                                      :description "Nothing to see"
+                                                      :icon "weather-clear"}]))))
+(println "6) :status-page at build:" (status-get-title sp)
+         "|" (status-get-description sp) "|" (status-get-icon sp))
+(assert (= "AdwStatusPage" (type-name sp)))
+(assert (= "Empty" (status-get-title sp)) "title lost")
+(assert (= "Nothing to see" (status-get-description sp)) "description lost on the first frame")
+(assert (= "weather-clear" (status-get-icon sp)) "icon lost on the first frame")
+;; and they still move when they change, including on a re-render
+(def sp2 (reconcile root-spec win (reconcile root-spec win nil
+                                             (normalize [:status-page {:title "Empty"}]))
+                    (normalize [:status-page {:title "Empty" :description "Later"}])))
+(def sp3 (reconcile root-spec win sp2 (normalize [:status-page {:title "Empty"
+                                                                :description "Later"}])))
+(println "   unchanged re-render keeps it:" (status-get-description (:widget sp3)))
+(assert (= "Later" (status-get-description (:widget sp3))) "the change path is broken")
+(def spin (:widget (reconcile root-spec win nil (normalize [:spinner {:size 30}]))))
+(println "   :spinner is" (type-name spin))
+(assert (= "AdwSpinner" (type-name spin)))
 (println "ALL OK")
 (System/exit 0)

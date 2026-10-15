@@ -31,7 +31,10 @@ bb counter               # an example (also: todo, monitor, weather, deck)
 bb shot monitor          # rewrite docs/images/monitor.png (also: weather, deck)
 ```
 
-Tests open real windows, so they need a display (Wayland or X11). A test file
+Tests open real windows, so they need a display (Wayland or X11). `bb test`
+runs them inside a persistent cage compositor, started on first use, so they do
+not steal focus; `GTKICCUP_NO_CAGE=1` turns that off. Everything else opens on
+the desktop. A test file
 is a plain script: it prints numbered steps, asserts, and ends with `ALL OK`.
 A new test file must also be added to the `test` task in `bb.edn` and to
 `docs/testing.md`.

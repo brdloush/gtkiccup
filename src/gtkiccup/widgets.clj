@@ -456,6 +456,8 @@
                        (g/label-set-width-chars w (int (:width-chars p -1)))
                        (g/label-set-justify w (get g/justify (:justify p :left) 0))
                        (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :none) 0))
+                       (when-let [nw (:natural-wrap p)]
+                         (g/label-set-natural-wrap-mode w (get g/natural-wrap nw 1)))
                        (g/label-set-selectable w (g/->gbool (:selectable p)))
                        w))
             :apply (fn [w p changed]
@@ -481,6 +483,10 @@
                        (g/label-set-justify w (get g/justify (:justify p :left) 0)))
                      (when (contains? changed :wrap-mode)
                        (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :none) 0)))
+                     (when (contains? changed :natural-wrap)
+                       (if-let [nw (:natural-wrap p)]
+                         (g/label-set-natural-wrap-mode w (get g/natural-wrap nw 1))
+                         (g/label-set-natural-wrap-mode w 1)))
                      (when (contains? changed :selectable)
                        (g/label-set-selectable w (g/->gbool (:selectable p)))))}
 
@@ -520,6 +526,45 @@
                        (let [v (str (:value p ""))]
                          (when (not= v (g/editable-get-text w))
                            (g/editable-set-text w v)))))}
+
+   ;; A read-only, word-wrapping block of text -- the lyric line. Unlike a
+   ;; GtkLabel, whose NATURAL width is the whole one-line string (so a long line
+   ;; drags the split view's sidebar wider, and whose natural_wrap knob this
+   ;; GTK ignores), a GtkTextView reports a SMALL natural width and wraps to
+   ;; whatever width it is GIVEN: the row grows TALLER with the text, never
+   ;; wider. It is made non-interactive (no caret, no editing, no focus) so it
+   ;; is pure display text.
+   :text-view {:text-prop  :text
+               :ctor  (fn [p]
+                        (let [v (g/text-view-new)]
+                          ;; a GtkTextView is scrollable, so GTK gives it
+                          ;; vexpand/hexpand = TRUE by default -- in a list that
+                          ;; makes every line hoard vertical space. Pin both off
+                          ;; and let :hexpand (set below, if any) opt into width.
+                          (g/widget-set-vexpand v 0)
+                          (g/text-view-set-editable v 0)
+                          (g/text-view-set-cursor-visible v 0)
+                          (g/text-view-set-wrap-mode v
+                            (get g/tv-wrap-mode (:wrap-mode p :word) 2))
+                          (g/text-view-set-justification v
+                            (get g/justify (:justify p :left) 0))
+                          (when-let [m (:margin p)]
+                            (g/text-view-set-left-margin v (int m))
+                            (g/text-view-set-right-margin v (int m)))
+                          (g/text-buffer-set-text
+                            (g/text-view-get-buffer v) (str (:text p "")) -1)
+                          v))
+               :apply (fn [w p changed]
+                        (when (contains? changed :wrap-mode)
+                          (g/text-view-set-wrap-mode w
+                            (get g/tv-wrap-mode (:wrap-mode p :word) 2)))
+                        (when (contains? changed :justify)
+                          (g/text-view-set-justification w
+                            (get g/justify (:justify p :left) 0)))
+                        ;; guard against rewriting the buffer every frame
+                        (when (contains? changed :text)
+                          (g/text-buffer-set-text
+                            (g/text-view-get-buffer w) (str (:text p "")) -1)))}
 
    ;; A line. Horizontal by default; :orientation :vertical puts it between two
    ;; cells of a row, where the height is what it has to follow.

@@ -22,8 +22,10 @@
 ;; -- lifecycle / main loop ---------------------------------------------------
 (defcfn gtk-init "gtk_init" [] :void)
 (defcfn main-iteration "g_main_context_iteration" [:pointer :int] :int)
+;; Only idle-add: every deferred call the library makes is one-shot, and a
+;; timeout would need a public "run f again in n ms" on top, which does not
+;; exist. g_timeout_add was here without a caller for a while and is gone.
 (defcfn idle-add "g_idle_add" [:pointer :pointer] :int)
-(defcfn timeout-add "g_timeout_add" [:uint :pointer :pointer] :int)
 
 ;; -- object lifetime ---------------------------------------------------------
 ;; A widget is floating until a container sinks it, and a container drops it
@@ -100,11 +102,9 @@
 ;; -- signals ----------------------------------------------------------------
 (defcfn signal-connect-data "g_signal_connect_data"
   [:pointer :string :pointer :pointer :pointer :int] :long)
-(defcfn signal-handlers-disconnect-by-func
-  "g_signal_handlers_disconnect_by_func"
-  [:pointer :pointer :pointer] :long)
-(defcfn widget-remove-controller "gtk_widget_remove_controller"
-  [:pointer :pointer] :void)
+;; Nothing disconnects by hand: connect! attaches a destroy-notify and GTK
+;; fires it when the instance is finalized, and an event controller goes with
+;; its widget. Both getters used to be here with no caller.
 
 ;; -- window -----------------------------------------------------------------
 (defcfn window-new "gtk_window_new" [] :pointer)
@@ -149,6 +149,8 @@
 (defcfn label-set-width-chars "gtk_label_set_width_chars" [:pointer :int] :void)
 (defcfn label-set-justify "gtk_label_set_justify" [:pointer :int] :void)
 (defcfn label-set-wrap-mode "gtk_label_set_wrap_mode" [:pointer :int] :void)
+(defcfn label-set-natural-wrap-mode "gtk_label_set_natural_wrap_mode" [:pointer :int] :void)
+(defcfn label-get-natural-wrap-mode "gtk_label_get_natural_wrap_mode" [:pointer] :int)
 (defcfn label-set-selectable "gtk_label_set_selectable" [:pointer :int] :void)
 (defcfn label-set-yalign "gtk_label_set_yalign" [:pointer :float] :void)
 (defcfn label-get-ellipsize "gtk_label_get_ellipsize" [:pointer] :int)
@@ -279,6 +281,25 @@
 (defcfn editable-get-text "gtk_editable_get_text" [:pointer] :string)
 (defcfn editable-set-text "gtk_editable_set_text" [:pointer :string] :void)
 
+;; -- text view --------------------------------------------------------------
+;; A GtkTextView is the ONE GTK text widget whose NATURAL width is small (it
+;; reports ~one character, not the whole line), so inside a size-negotiated pane
+;; -- like the split view's sidebar -- wrapped text grows the row TALLER without
+;; dragging the container's width out, which a GtkLabel cannot do under its
+;; default natural-wrap behaviour. Text is set through the view's buffer.
+(defcfn text-view-new "gtk_text_view_new" [] :pointer)
+(defcfn text-view-set-editable "gtk_text_view_set_editable" [:pointer :int] :void)
+(defcfn text-view-set-cursor-visible "gtk_text_view_set_cursor_visible" [:pointer :int] :void)
+(defcfn text-view-set-monospace "gtk_text_view_set_monospace" [:pointer :int] :void)
+(defcfn text-view-set-justification "gtk_text_view_set_justification" [:pointer :int] :void)
+(defcfn text-view-set-wrap-mode "gtk_text_view_set_wrap_mode" [:pointer :int] :void)
+(defcfn text-view-set-left-margin "gtk_text_view_set_left_margin" [:pointer :int] :void)
+(defcfn text-view-set-right-margin "gtk_text_view_set_right_margin" [:pointer :int] :void)
+(defcfn text-view-set-top-margin "gtk_text_view_set_top_margin" [:pointer :int] :void)
+(defcfn text-view-set-bottom-margin "gtk_text_view_set_bottom_margin" [:pointer :int] :void)
+(defcfn text-view-get-buffer "gtk_text_view_get_buffer" [:pointer] :pointer)
+(defcfn text-buffer-set-text "gtk_text_buffer_set_text" [:pointer :string :int] :void)
+
 ;; -- check button -----------------------------------------------------------
 (defcfn check-button-new-with-label "gtk_check_button_new_with_label" [:string] :pointer)
 (defcfn check-button-set-label "gtk_check_button_set_label" [:pointer :string] :void)
@@ -366,6 +387,20 @@
 (def wrap-mode
   "PangoWrapMode."
   {:none 0 :char 1 :word 2 :word-char 3})
+
+(def tv-wrap-mode
+  "GtkWrapMode -- NOT the same values as PangoWrapMode above: CHAR and WORD
+   swap. This is what gtk_text_view_set_wrap_mode takes."
+  {:none 0 :char 1 :word 2 :word-char 3})
+
+(def natural-wrap
+  "GtkNaturalWrapMode -- only the modes that differ. :normal (the GTK default)
+   reports the whole string on ONE line as the label's natural width, so inside
+   a size-negotiated pane a long line drags the container's width out with it.
+   :none reports the minimum instead, so a wrapping label wraps to whatever
+   width it is GIVEN and the container no longer tracks the text length. This
+   is the knob behind 'a long lyric line must not widen the whole sidebar'."
+  {:normal 0 :none 1})
 
 (def overflow
   "GtkOverflow. :hidden is what makes border-radius clip a picture: without it

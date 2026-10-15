@@ -18,6 +18,14 @@ These have to be set before the first window exists, because GTK derives the
 app_id from the process name when it creates the surface. `run` does it before
 `gtk_init` for that reason -- setting it afterwards silently does nothing.
 
+One distinction to keep straight: `adw/application-window` also takes an app
+id, and it is a **different identity**. That one is the `GApplication` id --
+the name the app registers with on the session bus, which is registered
+non-unique precisely so a stuck old instance cannot absorb the launch. It is
+what makes the app object an app; it does nothing about the surfaces a
+compositor matches. The `.desktop` matching above still keys off `run`'s
+`:app-id`. Apps that use both set both.
+
 ## The icon: needs a .desktop file
 
 Wayland has no per-window icon message, so a compositor takes the app_id and

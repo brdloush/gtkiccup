@@ -1,4 +1,4 @@
-{:paths ["src" "examples"]
+{:paths ["src" "examples" "scripts"]
  ;; the library's own dep, repeated: bb.edn does not read deps.edn
  :deps {no.cjohansen/replicant {:mvn/version "2026.07.1"}}
 
@@ -41,11 +41,32 @@
            :requires ([desktop])
            :task (desktop/-main "uninstall")}
 
+  ;; The compositor `bb test` runs in. `bb cage` once per login, move its
+  ;; single window to a spare workspace, and test runs stop touching your
+  ;; desktop. Starting it maps one host window and takes focus once -- that is
+  ;; the whole point versus wrapping each run in `cage -- bb test`.
+  cage        {:doc "Start the persistent cage compositor (one host window; park it on a spare workspace)."
+               :task (shell "scripts/cage-server" "start")}
+
+  cage-stop   {:doc "Stop the persistent cage compositor."
+               :task (shell "scripts/cage-server" "stop")}
+
+  cage-status {:doc "Report whether cage is running and on which socket."
+               :task (shell "scripts/cage-server" "status")}
+
   dev     {:doc "Start an nREPL server, then connect your editor and see gtkiccup.dev."
            :task (shell "bb" "nrepl-server" "1667")}
 
-  test    {:doc "Run all test files against real GTK."
-           :task (doseq [f ["test/reconcile_test.clj"
+  ;; The one task that runs inside cage by default: a test run opens and closes
+  ;; dozens of windows, and each would take focus on the desktop. The first call
+  ;; starts cage if it is not up, then re-runs this task inside it, where every
+  ;; window is a child surface. GTKICCUP_NO_CAGE=1 runs it on the desktop
+  ;; instead, for debugging. The examples, shot and dev always run on the
+  ;; desktop: those windows are meant to be seen.
+  test    {:doc "Run all 31 test files against real GTK, inside the persistent cage."
+           :requires ([cage :as cage])
+           :task (if (cage/here?)
+                   (doseq [f ["test/reconcile_test.clj"
                             "test/keyed_test.clj"
                             "test/signals_test.clj"
                             "test/repl_reload_test.clj"
@@ -57,6 +78,8 @@
                             "test/extension_test.clj"
                             "test/adw_test.clj"
                             "test/application_test.clj"
+                            "test/scrolled_test.clj"
+                            "test/clamp_test.clj"
                             "test/overlay_split_view_test.clj"
                             "test/view_stack_test.clj"
                             "test/view_switcher_test.clj"
@@ -75,4 +98,5 @@
                             "test/deckmd_test.clj"
                             "test/desktop_test.clj"]]
                    (println (str "\n== " f))
-                   (shell "bb" f))}}}
+                   (shell "bb" f))
+                   (cage/rerun "test"))}}}

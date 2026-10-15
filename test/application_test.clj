@@ -50,6 +50,18 @@
 (assert (= "AdwBin" (type-name (app-win-content win3))))
 (println "   -> tree renders and re-renders under the application window")
 
+;; gtk_widget_get_realized / get_mapped are bound in ffi.clj for exactly this
+;; kind of check: is the window actually on screen, as opposed to built.
+(println "7) a presented application window is realized and mapped")
+(g/window-present win3)
+(let [deadline (+ (System/nanoTime) (* 5 1e9))]
+  (while (and (zero? (g/widget-is-mapped win3)) (< (System/nanoTime) deadline))
+    (g/main-iteration nil 0)))
+(println "   realized:" (= 1 (g/widget-is-realized win3))
+         " mapped:" (= 1 (g/widget-is-mapped win3)))
+(assert (= 1 (g/widget-is-realized win3)) "window never realized")
+(assert (= 1 (g/widget-is-mapped win3)) "window never mapped")
+
 (g/window-destroy win)
 (g/window-destroy win2)
 (g/window-destroy win3)

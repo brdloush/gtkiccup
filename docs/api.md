@@ -11,7 +11,7 @@
 | `last-error` | Atom: the last render or handler failure, `nil` after a good render. |
 | `(load-css! css)` / `(load-css! css priority)` | Installs a `GtkCssProvider` for the display, so `:class` means something. Needs a display. For an app's own stylesheet, pass `:css` to `run` instead: it is installed before the first render, so no widget is ever measured unstyled. |
 | `(register-widget! tag spec)` | Adds or replaces a widget tag. |
-| `(register-signal! prop signal invoke)` | Adds an `:on-*` prop. `invoke` is `(fn [user-fn widget])` and decides what the handler receives. |
+| `(register-signal! prop signal invoke)` / `(register-signal! prop signal invoke opts)` | Adds an `:on-*` prop. `invoke` is `(fn [user-fn widget raw-args])` and decides what the handler receives. `opts` carries what the callback's C signature has to be: `:argtypes` (default the two pointers every signal starts with) and `:rettype` (default `:void`) -- signals that pass more than an instance and an event, the `change-value` of a range say, need them, because a closure reads its arguments by position and cannot guess them. |
 | `widgets` `signals` | The tables themselves, as atoms. |
 | `default-window` | `{:ctor :set-content}` for a plain `GtkWindow`. |
 | `chromeless-window` | The same, undecorated, for an app that draws its own top edge. |
@@ -28,6 +28,28 @@
 | `(atom init)` | Like `clojure.core/atom`, but a change marks the UI dirty. |
 | `(invalidate!)` | Mark dirty by hand. `gtkiccup.core/refresh!` is this. |
 | `(set-invalidate! f)` | Wiring, called by `run`. You should not need it. |
+
+## gtkiccup.refs
+
+Named widget references. Some GTK APIs connect two widgets --
+`AdwViewSwitcher.set_stack`, a popover's parent, a size group -- and a hiccup
+tree has no way to point one node at another. A `:ref` prop names a widget, so
+another node can find it by name; the renderer registers the name when it
+builds the widget and drops it when the element is released, so the table only
+ever holds live widgets (and `close!` clears it). Names are strings; a keyword
+is accepted and folded to one.
+
+| | |
+| --- | --- |
+| `(register! name widget)` | Points `name` at `widget`. Returns the widget, so it composes into a spec. |
+| `(unregister! name widget)` | Drops `name`, but only while it still points at `widget`: if a newer registration took the name over, that one is the truth and stays. |
+| `(resolve name)` | The widget `name` refers to, or nil. Anything that is not a name is taken to be a widget already, so props like `:stack` also accept a kept pointer. |
+| `(clear!)` | Forgets everything. `close!` calls it, and tests between cases. |
+| `(names)` | The live ref names, for debugging. |
+
+A spec that resolves a ref while it is being constructed may find its sibling
+is not built yet -- construction order follows the tree. That is why
+`:view-switcher` resolves in both `:apply` and `:after-children`.
 
 ## gtkiccup.dev
 
@@ -51,6 +73,7 @@
 | | |
 | --- | --- |
 | `window` | Pass as `(ui/run view :window adw/window)`. |
+| `(application-window app-id)` / `(application-window)` | Pass to `run`'s `:window`: an `AdwApplicationWindow` under an `AdwApplication`. Registered non-unique, so a stuck instance cannot claim the D-Bus name; activated -- startup is emitted, which is what windows need before they can be added -- but never `g_application_run`: gtkiccup keeps pumping its own loop. `app-id` may be nil. The map carries `:app`, the app object as a lazy deref, for tests or callers wanting the pointer. |
 | `(toast! overlay msg)` / `(toast! overlay msg seconds)` | Posts a toast into a `:toast-overlay`. |
 | `specs` | The tag -> spec map, registered on load. |
-| `initialized` | `{:version "1.9" :widgets [...]}`. Requiring the namespace runs `adw_init`. |
+| `initialized` | `{:version "<major>.<minor>" :widgets [...]}`, the version read back out of the loaded library -- here, not in the repo, it happens to be 1.9. Requiring the namespace runs `adw_init`. |

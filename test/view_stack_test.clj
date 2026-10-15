@@ -65,6 +65,21 @@
 (assert (= "player" (visible-name stack)))
 (println "   -> 1 page, the removed ones are out, player showing")
 
+;; 5) :on-switch is registered by gtkiccup.adw, not by core, and it reports the
+;;    page by name. It also fires once for the page chosen at build time, which
+;;    is not what "the user switched" sounds like, so it is pinned both ways.
+(def sw (atom []))
+(defn stack-view [cur]
+  [:view-stack {:visible-child-name cur :on-switch #(swap! sw conj %)}
+   [:vbox {:name "one"} [:label "1"]]
+   [:vbox {:name "two"} [:label "2"]]])
+(def t5 (reconcile root-spec win nil (normalize (stack-view "one"))))
+(println "5) after building with :visible-child-name \"one\":" @sw)
+(assert (= ["one"] @sw) "the page picked at build is not announced")
+(def t5b (reconcile root-spec win t5 (normalize (stack-view "two"))))
+(println "   after switching to \"two\":" @sw)
+(assert (= ["one" "two"] @sw) "switching did not announce the new page")
+
 (g/window-destroy win)
 (println "ALL OK")
 (System/exit 0)

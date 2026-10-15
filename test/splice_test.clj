@@ -62,4 +62,4 @@
   )
 (println "   -> nested bad tag still reported")
 
-(println "splice_test ok")
+(println "ALL OK")

@@ -478,9 +478,19 @@
                           :apply (fn [_ _ _] nil)}
                          (single-child toast-overlay-set-child))
 
+   ;; The ctor has to apply everything :apply does: apply only ever sees props
+   ;; that *changed*, so on the first frame -- when nothing counts as changed --
+   ;; a description or an icon would be dropped without a trace. Measured as
+   ;; test/adw_test.clj step 6. An absent :icon is left alone, because
+   ;; AdwStatusPage has a default icon and clearing it is not what asking for
+   ;; nothing means.
    :status-page  {:text-prop :title
-                  :ctor  (fn [p] (doto (status-page-new)
-                                   (status-set-title (str (:title p "")))))
+                  :ctor  (fn [p]
+                           (let [w (status-page-new)]
+                             (status-set-title w (str (:title p "")))
+                             (status-set-description w (str (:description p "")))
+                             (when-let [i (:icon p)] (status-set-icon-name w i))
+                             w))
                   :apply (fn [w p changed]
                            (when (contains? changed :title)
                              (status-set-title w (str (:title p ""))))

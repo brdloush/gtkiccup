@@ -8,17 +8,22 @@ takes the common props below. `gtkiccup.adw` adds more -- see
 
 | tag | own props | events | children |
 | --- | --- | --- | --- |
-| `:vbox` | `:spacing` (default 0) | -- | any number |
-| `:hbox` | `:spacing` (default 0) | -- | any number |
-| `:label` | `:label` `:markup` `:wrap` `:xalign` | -- | text only |
-| `:button` | `:label` | `:on-click` | text only |
+| `:vbox` | `:spacing` (default 0), `:homogeneous` | -- | any number |
+| `:hbox` | `:spacing` (default 0), `:homogeneous` | -- | any number |
+| `:label` | `:label` `:markup` `:wrap` `:wrap-mode` `:lines` `:ellipsize` `:xalign` `:yalign` `:justify` `:selectable` `:width-chars` `:max-width-chars` | -- | text only |
+| `:button` | `:label` `:icon` `:has-frame` (default true) | `:on-click` | text, or one child -- and once a child is set, GTK stops showing `:label` |
 | `:check` | `:label` `:active` | `:on-toggle` | text only |
 | `:entry` | `:value` `:placeholder` | `:on-change` `:on-activate` | text only |
 | `:bin` | -- | -- | one child, given the whole allocation |
-| `:clamp` | `:max` width | -- | one child, centred |
+| `:clamp` | `:max` width (default -1, i.e. unset; `gtkiccup.adw`'s swap sets 600) | -- | one child, centred, and in plain GTK4 it is a centred `GtkBox` rather than a `GtkClamp`: `:max` becomes a size *request*, so a clamp is also why a window cannot be dragged narrower than that. `:min` is read by nobody here -- it belongs to `AdwClamp` -- and it is applied once, at construction, so raising `:max` on a re-render does nothing until the widget is rebuilt. `test/clamp_test.clj` |
 | `:overlay` | -- | -- | one child, plus any number with `:slot :over` floating on top |
-| `:icon` | `:icon` (theme name) or `:file` (a path, SVG included), `:size` | -- | -- |
-| `:scrolled` | `:hscroll` `:vscroll`: `:never` `:automatic` `:always` `:external` (default never/automatic). Cap its height with CSS `max-height` | -- | one child |
+| `:icon` | `:icon` (theme name), `:file` (a path, SVG included) or `:texture` (a path to a bitmap, loaded as pixels), `:size` (default -1, GTK's own choice) | -- | text: the icon name itself, so `[:icon "gtk-ok"]` |
+| `:scrolled` | `:hscroll` `:vscroll`: `:never` `:automatic` `:always` `:external` (default never/automatic). Cap its height with CSS `max-height`. `:wheel-scroll`: `true` (both axes) `:vertical` `:horizontal` `:both` | -- | one child |
+| `:center-box` | -- | -- | children with `:slot :start` / `:end` at the sides, anything else centred; one widget per slot |
+| `:separator` | `:orientation` -- `:vertical` draws it across, anything else draws it across horizontally, so a typo reads as `:horizontal` rather than failing | -- | -- |
+| `:scale` | `:min` `:max` `:step` `:value` `:draw-value` `:digits` (default 1) `:inverted` `:orientation` | `:on-change-value` | -- |
+| `:aspect-frame` | `:ratio` (1.0 = square), `:obey-child` | -- | one child |
+| `:menu-button` | `:icon` `:label` `:has-frame` (default false, unlike `:button`) `:primary` | -- | one child, or a menu / popover to open |
 
 Common props, on every widget:
 
@@ -33,6 +38,10 @@ Common props, on every widget:
 | `:margin-start` `:margin-end` `:margin-top` `:margin-bottom` | individual margins, which win over `:margin`. How you place a widget at a measured pixel offset inside an `:overlay` | `0` |
 | `:focusable` | `false` keeps a widget out of the Tab chain, so it cannot steal a keystroke | `true` |
 | `:class` | a CSS class name, or a collection of them | none |
+| `:visible` | `false` hides it. The widget stays alive, so its state survives | `true` |
+| `:overflow` | `:visible` `:hidden` `:mask` -- `:hidden` is what lets `border-radius` clip what is inside, which CSS alone cannot do: a rounded cover picture shows square corners without it | `:visible` |
+| `:direction` | `:ltr` / `:rtl` text direction | unset means **no call**, so GTK's locale-derived direction stands; `:ltr` is what removal falls back to |
+| `:ref` | a name other widgets can find this widget by -- see [gtkiccup.refs](api.md#gtkiccuprefs) | none |
 
 `:markup` is Pango markup and wins over `:label`. Whatever builds it **must
 escape first** -- a bare `&` or `<` breaks the label. `deckmd/escape` shows the
@@ -42,8 +51,37 @@ A `GtkBox` child takes its **natural** size unless you set `:hexpand`/`:vexpand`
 A scrolled window's natural height is tiny, so a `:scroll` inside a box without
 `:vexpand true` collapses to a sliver -- nothing errors, it just looks broken.
 
-Handler arguments: `:on-click` gets none, `:on-change` and `:on-activate` get the
-entry's current text, `:on-toggle` gets the new boolean.
+A `:homogeneous` box gives every child the same size. Like `:spacing` it is set
+at construction -- the renderer applies props of a freshly built widget once,
+so a build-time prop also holds on a page that never re-renders.
+
+`GtkScrolledWindow` is supposed to move on the mouse wheel, and on some setups
+it does not: the page scrolls with Page Down but the wheel does nothing, because
+the window's own scroll controller never fires. Set `:wheel-scroll` and
+gtkiccup drives the adjustment from its own capture-phase controller, which sees
+the wheel over the whole content -- including over any nested strip -- and
+reports *handled* only when it actually moved, so it never swallows a scroll
+the rest of the UI could have used.
+
+A label's shape comes from the props that decide how much of a string fits:
+`:ellipsize` truncates (card titles use `:middle` -- the middle of a title is
+the part you can afford to lose), `:lines` caps the height of wrapped text, and
+`:width-chars` *asks for* a width while `:max-width-chars` *caps* one.
+`:selectable` makes it copyable.
+
+Handler arguments: `:on-click` gets none, `:on-change` and `:on-activate` get
+the entry's current text, `:on-toggle` gets the new boolean, and
+`:on-change-value` gets the new value of a `:scale` -- returning nothing from
+it means *not handled*, so GTK moves the knob itself and the state catches up
+on the next render. A drag is never fought by the app, and the value is written
+back only when it really differs.
+
+One trap belongs to the tag rather than to the handler: `gtk_scale_new_with_range`
+asserts that the step is not zero and hands back NULL if it is, so a `:step 0` is
+coerced to 1.0 at construction. Dropping the prop later is not the same thing --
+`:apply` writes whatever is in the props, so removing `:step` sets the keyboard
+increments to zero, which is GTK's own "no stepping" rather than the 1.0 the
+button started with.
 
 ## Keyboard input
 
@@ -89,9 +127,11 @@ the same thing:
 [:label {:label (str "Count: " @n)}]
 ```
 
-The target prop is `:label` for `:label`, `:button` and `:check`, and `:value`
-for `:entry`. It is declared per widget as `:text-prop`, and it behaves like any
-other prop -- diffed, patched, reactive.
+The target prop is `:label` for `:label`, `:button`, `:check` and
+`:menu-button`, `:value` for `:entry`, `:icon` for `:icon` and
+`:icon-button`, `:title` for `:window-title`, `:row` and `:status-page`,
+`:file` for `:picture`. It is declared per widget as `:text-prop`, and it
+behaves like any other prop -- diffed, patched, reactive.
 
 Four things are refused, each saying what to do instead: text on a container
 (`[:vbox {} "oops"]`), a prop and text children at once (`[:label {:label "a"}
@@ -127,13 +167,21 @@ and the widgets move; without keys they stay put and are relabelled.
    [:label {:key (:pid p)} (:name p)])]
 ```
 
+The props map is yours: `:pid` is not a gtkiccup prop, just a key your own data
+carries. The renderer only reads `:key`, and uses it to keep the right widget
+when the list's order changes.
+
 Keys must be unique among siblings. `:key` is shorthand for Replicant's
 `:replicant/key`.
 
 ## Lifecycle hooks
 
-Replicant's hooks work on any widget: `:replicant/on-mount`, `:on-update`,
-`:on-unmount` and `:on-render`. They run after GTK is in sync, so the widget is
+Replicant's hooks work on any widget: `:replicant/on-mount`,
+`:replicant/on-update`, `:replicant/on-unmount` and `:replicant/on-render`.
+The `:replicant/` prefix is part of the name -- a bare `:on-mount` is not a hook
+at all, it is an unknown prop that is silently dropped, so the handler never
+runs and nothing says so. (Like `:replicant/key` for `:key`, except that `:key`
+is translated for you.) They run after GTK is in sync, so the widget is
 already in its parent. `ui/widget` gets the widget out of the event:
 
 ```clojure
@@ -171,6 +219,16 @@ alongside or instead of `:class`.
 `(require '[gtkiccup.adw :as adw])` calls `adw_init` and registers these tags. Pass
 `:window adw/window` to `ui/run`.
 
+For a real application window, pass `(adw/application-window "cz.brdloush.MyApp")`
+instead: an `AdwApplicationWindow` under an `AdwApplication`. The app is
+registered and activated -- startup is emitted, which is what windows need
+before they can be added -- but never `g_application_run`: gtkiccup keeps
+pumping its own loop, so `later!`, `wake!` and the REPL story are unchanged.
+The app registers **non-unique**, so a stuck instance cannot claim the D-Bus
+name and hand the next launch's window to a zombie; `app-id` may be nil for a
+local app that only parents windows. The app id is a different identity from
+`run`'s `:app-id` -- see [Desktop integration](desktop-integration.md).
+
 | tag | own props | slots for children |
 | --- | --- | --- |
 | `:toolbar-view` | -- | `:top`, `:bottom`, else content |
@@ -179,18 +237,21 @@ alongside or instead of `:class`.
 | `:page` | -- | groups |
 | `:group` | `:title` `:description` | rows |
 | `:row` | `:title` `:subtitle` | `:prefix`, else `:suffix` |
-| `:status-page` | `:title` `:description` `:icon` | -- |
+| `:status-page` | `:title` `:description` `:icon` | one child. All three land at construction, which is worth saying: the ctor used to apply only `:title`, so an empty state that asked for a description or an icon showed neither until something *changed* them (`test/adw_test.clj` step 6). Leaving `:icon` unset keeps AdwStatusPage's own default icon rather than clearing it |
 | `:toast-overlay` | -- | one child |
-| `:bin` `:clamp` | `:clamp` takes `:max` width. Both **replace** the plain-GTK4 tags of the same name with AdwBin and AdwClamp | one child |
-| `:scroll` | `:h` `:v` scrollbar policy: `:automatic` `:never` `:always` `:external` | one child |
-| `:banner` | `:title` `:revealed` | -- |
+| `:bin` `:clamp` | `:clamp` takes `:max` (default **600**, where core's `:clamp` leaves it unset at -1 -- so swapping the tag changes the default too). Both **replace** the plain-GTK4 tags of the same name with AdwBin and AdwClamp | one child |
+| `:scroll` | `:h` `:v` scrollbar policy: `:automatic` `:never` `:always` `:external`, both defaulting to `:automatic` | one child |
+| `:banner` | `:title` `:revealed` (default `true` -- it is shown until you hide it) | -- |
 | `:spinner` | -- | -- |
-| `:carousel` | `:page` (an index -- changing it **animates**), `:animate`, `:drag`, `:wheel` | pages |
-| `:revealer` | `:revealed` `:duration` | one child |
-| `:level` | `:value` `:min` `:max` `:width` | -- |
-| `:picture` | `:file` | -- |
+| `:carousel` | `:page` (an index -- changing it **animates**), `:animate` (default `true`), `:drag` and `:wheel` (both `false`: dragging is not free) | pages |
+| `:revealer` | `:revealed` (default `true`), `:duration` (default 250 ms) | one child |
+| `:level` | `:value` `:min` `:max` (defaults 0 / 1 / 0, centred vertically) | -- |
+| `:picture` | `:file` (`:texture` / `:paintable` are synonyms), `:content-fit` (`:fill` `:contain` `:cover` `:scale-down`, default `:contain`; `:cover` fills a card without letterboxing), `:can-shrink` (default `true`) | -- |
 | `:icon-button` | `:icon` | -- |
 | `:adw-window` | -- | one child |
+| `:overlay-split-view` | `:show-sidebar` (default `true`), `:sidebar-width-fraction` (default 0.4), `:min-sidebar-width` / `:max-sidebar-width` (defaults 320/420 -- measured as fractions of the content since the width unit landed, so pass doubles) | `:slot :sidebar` for the pane that floats over, everything else is the content |
+| `:view-stack` | `:visible-child-name` (by name; an unknown name is skipped until that page exists), `:h-homogeneous` (default `true`), `:v-homogeneous` (default `false`) | pages are children with a `:name`; `:title` / `:icon` show on a switcher. `:on-switch` fires with the visible page's name -- including once when the first page is picked at build, which is not a switch, so a handler that counts user switches has to notice that first call (`test/view_stack_test.clj` step 5) |
+| `:view-switcher` | `:stack` -- a `:ref` name or a kept pointer --, `:policy` `:wide` (the pill bar) / `:narrow` (the icon row) | -- |
 
 A slot is a plain `:slot` prop on the **child**, which the parent's `:append`
 reads:
@@ -200,6 +261,21 @@ reads:
  [:icon  {:slot :prefix :icon "application-x-executable-symbolic"}]
  [:level {:slot :suffix :value 0.42}]]
 ```
+
+Pages and their switcher pair through a `:ref` name, because a hiccup tree has
+no other way to point one node at another:
+
+```clojure
+[:view-stack {:ref "pages" :visible-child-name "player"}
+ [:bin {:name "player" :title "Player" :icon "media-playback-start-symbolic"} ...]
+ [:bin {:name "queue"  :title "Queue"  :icon "view-list-symbolic"}          ...]]
+
+[:view-switcher {:stack "pages" :policy :wide}]
+```
+
+The stack may be built after the switcher -- construction order follows the
+tree -- so the ref is resolved again in `:after-children`, once the container's
+children are all in. See [gtkiccup.refs](api.md#gtkiccuprefs).
 
 `(adw/toast! overlay "message")` posts a toast. libadwaita's own style classes
 work through `:class` with no CSS of your own -- `"flat"`, `"dim-label"`,

@@ -1,8 +1,10 @@
 # Examples
 
-Three examples do the arguing. Each renders its own screenshot, at the display's
-full pixel density, via `bb shot` -- so on a 2x screen the PNG is twice the
-window's size. That is why the images here have a fixed display width.
+Three examples do the arguing. (`bb counter` and `bb todo` run too, but they
+prove the basics rather than the look.) Each of the three renders its own
+screenshot, at the display's full pixel density, via `bb shot` -- so on a 2x
+screen the PNG is twice the window's size. That is why the images here have a
+fixed display width.
 
 ## Deck
 
@@ -19,7 +21,10 @@ it moves.
 Edit the markdown while it is on screen and the slides reload, keeping your
 place.
 
-213 MB, 0.33% of a core, and a steady 62 fps while animating.
+219 MB, 0.12% of a core idle, and the animation itself is what costs the
+frames. (The old line here said "213 MB, 0.33% and a steady 62 fps" -- those
+were the monitor's numbers, not deck's, and nothing in the repo measured
+either.)
 
 `examples/deckmd.clj` is the parser (pure, and the only place that knows about
 Pango escaping), `examples/deck.clj` the app.
@@ -34,10 +39,12 @@ The colour is the point: weather code plus day/night picks one of 14 gradients,
 and changing conditions only swaps a CSS class. Big light type, an hourly strip
 that scrolls, a 7-day list, and a details group.
 
-It **idles at 0.00% of a core**, 223 MB. It refreshes every 15 minutes, so the
+It **idles at 0.12% of a core** (measured over eight seconds -- it does tick a
+clock), 231 MB. It refreshes every 15 minutes, so the
 blocking main loop genuinely does nothing in between. Works offline too: the
 last response is cached, so the window opens with real content and an honest
-banner saying how old it is.
+banner saying how old it is -- that path is what `test/weather_test.clj` steps
+4 and 5 drive: no fetch, rendered from the cache, with the age label computed.
 
 **English and Czech.** The language starts from `LANG` and the header switches
 it; the choice is saved next to the place and the units. Switching costs no
@@ -45,6 +52,14 @@ network call: `openmeteo` builds the view model in whatever language is in
 force, so a switch is a rebuild from the response already cached. The
 geocoding search sends the language too, so a Czech search for Prague answers
 `Praha, Česko`.
+
+![the same app with `LANG=cs_CZ.UTF-8`](images/weather-cs.png)
+
+Every string in the window, the header menu included, comes from
+`examples/weather_i18n.clj` -- that picture is the whole point of keeping them
+there, and `test/i18n_test.clj` counts the Czech shapes rather than trusting
+them. Run `LANG=cs_CZ.UTF-8 bb shot weather docs/images/weather-cs.png` to
+redraw it.
 
 `examples/weather.clj` is the UI, `examples/openmeteo.clj` the data,
 `examples/weather_css.clj` the stylesheet and `examples/weather_i18n.clj` the
@@ -59,32 +74,42 @@ assembled.
 <img src="images/monitor.png" alt="System Monitor" width="500">
 
 Look at the row it highlights. An idle window built this way costs **0.00% of a
-core**; the monitor measures under 1% over eight seconds, and all of that is its
-own work -- it re-reads `/proc` and repaints fourteen rows every second. The figure
-in the picture is a live one-second sample, so it jitters between 1 and 3%. Next
-to it is a JetBrains IDE using 4.5 GB.
+core** -- measured over six seconds on a running `bb counter`, whose only
+wakeup is the main loop blocking. The monitor measures under 1% over eight
+seconds, and all of that is its own work: it re-reads `/proc` and repaints
+fourteen rows every second. Everything in the picture is a live one-second
+sample, so its figures are this machine's, taken at this moment -- the
+self-highlighting row and the top-process list below it are what the shot is
+for, not any particular number.
 
-The UI is one pure function of one map. `examples/monitor.clj` is 155 lines,
+The UI is one pure function of one map. `examples/monitor.clj` is 154 lines,
 `examples/sysinfo.clj` (all the `/proc` reading) is 215, and the libadwaita
-bindings are 392. Core did not have to change much to allow it -- see
+bindings are 642. Core did not have to change much to allow it -- see
 [Extension points](internals.md#extension-points).
 
 ## Keeping it small
 
-`-Xmx96m` takes the monitor from 239 MB to 216. bb is a GraalVM native image and
-**does** honour `-Xmx` -- proved by `-Xmx32m` dying and `-Xmx2000m` not. It has
-to be on the command line, so the app tasks re-exec babashka with it via
-`babashka.process/exec`, which keeps it to one process.
+`-Xmx96m` takes the monitor from 255 MB to 218 -- 37 MB, measured by starting
+it with `bb -m monitor` and with `bb -Xmx96m -m monitor` and reading `VmRSS`
+from `/proc/<pid>/status` once the window is up. (An earlier run of the same
+comparison came out 239 to 216; the delta moves around, the shape does not.)
+bb is a GraalVM native image and **does** honour `-Xmx`, which is why the flag
+has any effect at all: `-Xmx32m` and `-Xmx2000m` both start, so it is not a
+value that is ignored. It has to be on the command line, so the app tasks
+re-exec babashka with it via `babashka.process/exec`, which keeps it to one
+process.
 
-`-Xmx64m` saves another 10 MB and still runs; below about 48 MB the app dies on
-startup. The remaining ~200 MB is mostly the babashka binary itself (63 MB
-resident doing nothing) plus GTK, libadwaita and the theme.
+`-Xmx64m` saves another 13 MB (205) and still runs, and 48 does too (206) --
+the app no longer falls over below some floor. The remaining ~200 MB is mostly
+the babashka binary itself, 69 MB resident doing nothing, plus GTK, libadwaita
+and the theme.
 
 ### The renderer, and a mistake worth keeping
 
-`GSK_RENDERER=cairo` saves about 50 MB by not mapping the GL/mesa stack, and for
-a UI that never animates the output is pixel-identical. Two of these apps used
-to force it.
+`GSK_RENDERER=cairo` saves about 50 MB by not mapping the GL/mesa stack -- 221
+MB idle on the default renderer against 171 MB under cairo, both on this
+machine, read from `/proc/<pid>/status` once the window is up. For a UI that
+never animates the output is the same. Two of these apps used to force it.
 
 They no longer do, and the reason is worth writing down. Counting real frames
 with a GTK tick callback while a carousel animated:
@@ -94,6 +119,13 @@ with a GTK tick callback while a carousel animated:
 | `cairo` | **36 fps** | 165 MB | 1.00% |
 | default | 62 fps | 213 MB | **0.83%** |
 | `vulkan` | 65 fps | 211 MB | 1.33% |
+
+The fps column is the one nothing in the repo reproduces: it came from a tick
+callback that is not in `examples/` any more, so it is a 2025 measurement
+rather than something `bb shot` regenerates. The RSS column is reproducible
+with the recipe above. Idle readings taken now: 221 MB default, 171 MB cairo,
+221 MB vulkan, all three idling around 0.9% of a core -- which is the monitor's
+own second-by-second `/proc` work, not rendering.
 
 Software rendering cannot repaint a full-screen window at 60 Hz, so the deck was
 visibly choppy. But look at the CPU column: cairo does not even win there --
@@ -120,7 +152,7 @@ bb shot weather   # regenerate a screenshot (the app shoots itself)
 LANG=cs_CZ.UTF-8 bb shot weather docs/images/weather-cs.png   # the same, in Czech
 bb shot monitor
 bb shot deck
-bb test       # all nineteen test files (see Tests below)
+bb test       # all thirty-one test files (see Tests below)
 bb dev        # nREPL server on 1667, for editor-driven work
 
 bb install-desktop     # Linux: make the apps look native in the switcher and app grid
@@ -131,5 +163,6 @@ bb tasks      # list them
 
 Needs babashka >= 1.13.220 and GTK4 (`libgtk-4.so.1`). `bb weather` and
 `bb monitor` also need libadwaita (`libadwaita-1.so.0`, 1.9 here) and reads `/proc`, so it is
-Linux-only. `bb weather` needs the network on first run only. Both re-exec
-babashka with `-Xmx96m`, for the reason in [Keeping it small](#keeping-it-small).
+Linux-only. `bb weather` needs the network on first run only. Four tasks
+(`weather`, `monitor`, `deck`, `shot`) re-exec babashka with `-Xmx96m`, for the
+reason in [Keeping it small](#keeping-it-small).

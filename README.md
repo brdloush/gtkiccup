@@ -42,8 +42,9 @@ GTK widgets, and keeps them up to date as the state changes.
   Style them with CSS. libadwaita is optional, for a GNOME look.
 - **No JVM, no build step, no generated bindings.** babashka calls the GTK C
   library directly through its FFI. A `.clj` file is the whole app.
-- **Starts fast, idles at zero.** A window is up about 0.1 s after the process
-  starts. An idle app uses 0.00% of a core: the main loop blocks until GTK or
+- **Starts fast, idles at zero.** A window renders about 30 ms after `run` is
+  called, whole process to process in a fifth of a second. An idle app uses
+  0.00% of a core: the main loop blocks until GTK or
   your state has something to do.
 - **The REPL works on a live window.** Change state or redefine a view and the
   open window updates. Widgets are patched in place, so focus and half-typed
@@ -69,11 +70,11 @@ Two posts made this possible, and are worth reading first:
 
 | | |
 | --- | --- |
-| library | about 2,000 lines of Clojure, libadwaita support and dev tools included |
+| library | about 2,900 lines of Clojure, libadwaita support and dev tools included (`wc -l src/gtkiccup/*.clj`) |
 | dependencies | one: Replicant, pure `.cljc` with no dependencies of its own |
-| memory | about 220-230 MB resident for a small app. Most of it is the babashka binary and GTK itself. `bb -Xmx96m` saves about 20 MB |
-| CPU when idle | 0.00% of a core |
-| time to a window | about 0.1 s after the process starts |
+| memory | about 230 MB resident for a small app (`bb counter`, read out of `/proc`). Most of it is the babashka binary and GTK itself -- bare `bb` sits at 69 MB. `bb -Xmx96m` saved 37 MB on the monitor |
+| CPU when idle | 0.00% of a core (`bb counter`, sampled over six seconds from `/proc/<pid>/stat`) |
+| time to a window | 31 ms from `run` to the first render; 203 ms for the whole process |
 
 Measured on Linux x86-64 with GTK 4.22 and babashka 1.13.222.
 
