@@ -53,6 +53,27 @@
   (atom {:tag ::root :spec spec :props {} :classes #{}
          :widget window :kids [] :attached [] :handlers {}}))
 
+(defn- connect-handler! [el prop holder]
+  (let [{:keys [widget spec]} @el]
+    (swap! el assoc-in [:connections prop] (w/connect! widget prop holder spec))))
+
+(defn- with-blocked-handlers!
+  "Runs `f` with the application handlers of `elements` silenced. The widgets
+   must already exist: a handler connected inside the scope is not blocked."
+  [elements f]
+  ;; Coarse-grained: block all application handlers for these widgets rather
+  ;; than maintain a mapping from each changed property to the signals it can
+  ;; emit. Unblock the same snapshot: `f` may construct a widget and connect
+  ;; handlers that were never blocked, and unblocking those is a GLib critical.
+  (let [blocked (vec (mapcat #(vals (:connections @%)) elements))]
+    (doseq [{:keys [target handler-id]} blocked]
+      (g/signal-handler-block target handler-id))
+    (try
+      (f)
+      (finally
+        (doseq [{:keys [target handler-id]} blocked]
+          (g/signal-handler-unblock target handler-id))))))
+
 (defn- widget!
   "The element's widget, constructed on first call from the props Replicant has
    set by now."
@@ -65,7 +86,7 @@
         (w/apply-common! wp props (set (keys props)))
         ((:apply spec) wp props #{})                 ; ctor already set the basics
         (doseq [c classes] (g/widget-add-css-class wp c))
-        (doseq [[prop holder] handlers] (w/connect! wp prop holder))
+        (doseq [[prop holder] handlers] (connect-handler! el prop holder))
         wp)))
 
 (declare owe!)
@@ -81,12 +102,20 @@
     (when (empty? (:changed @el)) (owe! :props el))
     (swap! el update :changed (fnil conj #{}) k)))
 
-(defn- apply-props! [el]
-  (let [{:keys [widget spec props changed released?]} @el]
+(defn- apply-props!
+  "Pushes an element's changed props, then lets its parent react to them through
+   `:child-apply` -- a grid cell or an overlay alignment lives on the child but
+   is the parent's business."
+  [el]
+  (let [{:keys [widget spec props changed released? parent]} @el]
     (swap! el assoc :changed #{})
     (when (and widget (seq changed) (not released?))
-      (w/apply-common! widget props changed)
-      ((:apply spec) widget props changed))))
+      (with-blocked-handlers! [el]
+        #(do
+           (w/apply-common! widget props changed)
+           ((:apply spec) widget props changed)
+           (when-let [child-apply (and parent (:child-apply (:spec @parent)))]
+             (child-apply (:widget @parent) widget props changed)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; children
@@ -128,6 +157,7 @@
   [parent child ref]
   (let [kids (without (:kids @parent) child)
         i    (let [i (if ref (index-of kids ref) -1)] (if (neg? i) (count kids) i))]
+    (swap! child assoc :parent parent)
     (swap! parent assoc :kids (into (conj (subvec kids 0 i) child) (subvec kids i)))
     (touch! parent)))
 
@@ -159,50 +189,70 @@
   [parent]
   (swap! parent assoc :dirty? false)
   (when-not (:released? @parent)
-    (let [{:keys [spec kids attached]} @parent
-          wanted? (fn [el] (<= 0 (index-of kids el)))
-          gone    (remove wanted? attached)
-          _       (run! #(gtk-remove! parent %) gone)
-          kept    (filterv wanted? attached)]
-      (doseq [k kids :when (neg? (index-of attached k))] (owe! :fresh k))
-      (if-let [insert-after (:insert-after spec)]
-        ;; positional: walk the wanted order, fixing each slot that is wrong
-        (loop [i 0 cur kept]
-          (when (< i (count kids))
-            (let [k (kids i)]
-              (if (and (< i (count cur)) (identical? (cur i) k))
-                (recur (inc i) cur)
-                (let [cur (if (<= 0 (index-of cur k))
-                            (do (gtk-remove! parent k) (without cur k))
-                            cur)]
-                  (insert-after (widget! parent) (widget! k)
-                                (when (pos? i) (widget! (kids (dec i))))
-                                (:props @k))
-                  (recur (inc i) (into (conj (subvec cur 0 i) k) (subvec cur i))))))))
-        ;; append-only: keep the longest prefix already in place, redo the rest
-        (let [j (loop [j 0]
-                  (if (and (< j (count kept)) (< j (count kids))
-                           (identical? (kept j) (kids j)))
-                    (recur (inc j))
-                    j))]
-          (run! #(gtk-remove! parent %) (subvec kept j))
-          (run! #(gtk-append! parent %) (subvec kids j))))
-      (swap! parent assoc :attached kids))))
+    ;; removing a selected row fires the parent's selection handler, and the
+    ;; renderer's own writes are not user input -- as in apply-props!
+    (with-blocked-handlers! [parent]
+      (fn []
+        (let [{:keys [spec kids attached]} @parent
+              wanted? (fn [el] (<= 0 (index-of kids el)))
+              gone    (remove wanted? attached)
+              _       (run! #(gtk-remove! parent %) gone)
+              kept    (filterv wanted? attached)]
+          (doseq [k kids :when (neg? (index-of attached k))] (owe! :fresh k))
+          (if-let [insert-after (:insert-after spec)]
+            ;; positional: walk the wanted order, fixing each slot that is wrong
+            (loop [i 0 cur kept]
+              (when (< i (count kids))
+                (let [k (kids i)]
+                  (if (and (< i (count cur)) (identical? (cur i) k))
+                    (recur (inc i) cur)
+                    (let [cur (if (<= 0 (index-of cur k))
+                                (do (gtk-remove! parent k) (without cur k))
+                                cur)]
+                      (insert-after (widget! parent) (widget! k)
+                                    (when (pos? i) (widget! (kids (dec i))))
+                                    (:props @k))
+                      (recur (inc i) (into (conj (subvec cur 0 i) k) (subvec cur i))))))))
+            ;; append-only: keep the longest prefix already in place, redo the rest
+            (let [j (loop [j 0]
+                      (if (and (< j (count kept)) (< j (count kids))
+                               (identical? (kept j) (kids j)))
+                        (recur (inc j))
+                        j))]
+              (run! #(gtk-remove! parent %) (subvec kept j))
+              (run! #(gtk-append! parent %) (subvec kids j))))
+          (swap! parent assoc :attached kids))))))
 
-(defn- settle!
+(defn- run-on-render!
+  "Lets a spec react to its children through `:on-render`, after the
+   structure pass has put them in place -- a list box's selected row lives on
+   the children. Despite the name it does not run on every render: only when
+   the element's props or its child list changed. A leaf or an empty container
+   gets no call on its first render, and a class-only change skips it too."
+  [el]
+  (let [{:keys [widget spec props kids released?]} @el]
+    (when (and widget (not released?))
+      (when-let [f (:on-render spec)]
+        (with-blocked-handlers! (cons el kids)
+          #(f widget props (mapv deref kids)))))))
+
+(defn- run-on-mount!
   "Once, when an element first lands in its parent, after every container is
    in sync -- so its own children are in place, which is what
-   `:after-children` (a carousel's initial page) needs."
+   `:on-mount` (a carousel's initial page) needs."
   [el]
-  (when-not (or (:settled? @el) (:released? @el))
-    (swap! el assoc :settled? true)
-    (when-let [f (:after-children (:spec @el))]
-      (f (:widget @el) (:props @el)))))
+  (let [{:keys [widget spec props mounted? released?]} @el]
+    (when-not (or mounted? released?)
+      (swap! el assoc :mounted? true)
+      (when-let [f (:on-mount spec)]
+        (with-blocked-handlers! [el]
+          #(f widget props))))))
 
 (defn- flush!
   "Pays what the render owes GTK, in the order it has to happen: changed props,
-   then structure, then first-landing callbacks, then the references of removed widgets, then
-   the lifecycle hooks -- last, so a hook sees the tree as it now is."
+   then structure, then the internal render and mount hooks, then the references
+   of removed widgets, then the application lifecycle hooks -- last, so a hook
+   sees the tree as it now is."
   []
   (loop []
     (let [[{:keys [props dirty fresh releases hooks]} _]
@@ -210,7 +260,8 @@
       (when (or (seq props) (seq dirty) (seq fresh) (seq releases) (seq hooks))
         (run! apply-props! props)
         (run! sync-children! dirty)
-        (run! settle! fresh)
+        (run! run-on-render! (distinct (concat props dirty)))
+        (run! run-on-mount! fresh)
         (run! g/object-unref releases)
         (run! #(%) hooks)
         ;; a hook may have changed something; a second pass picks it up
@@ -273,7 +324,7 @@
          (reset! holder f)
          (let [holder (atom f)]
            (swap! el assoc-in [:handlers event] holder)
-           (when-let [wp (:widget @el)] (w/connect! wp event holder)))))
+           (when (:widget @el) (connect-handler! el event holder)))))
 
      `rp/remove-event-handler
      (fn [_ el event _opts]

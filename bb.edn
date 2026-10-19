@@ -17,7 +17,7 @@
            :requires ([babashka.process])
            :task (babashka.process/exec "bb" "-Xmx96m" "-m" "monitor")}
 
-  shot    {:doc "Write docs/images/<app>.png -- the app screenshots itself. bb shot [monitor|weather|deck]"
+  shot    {:doc "Write docs/images/<app>.png -- the app screenshots itself. bb shot [monitor|weather|deck|gallery]"
            :requires ([babashka.process])
            :task (apply babashka.process/exec
                         "bb" "-Xmx96m" "-m" "shot" *command-line-args*)}
@@ -30,6 +30,12 @@
            :requires ([babashka.process])
            :task (apply babashka.process/exec
                         "bb" "-Xmx96m" "-m" "deck" *command-line-args*)}
+
+  gallery {:doc "Run the widget gallery (Buttons & Choices)."
+           :task (exec 'gallery.main/-main)}
+
+  gallery-smoke {:doc "Open and close the gallery."
+                 :task (exec 'gallery.smoke/-main)}
 
   install-desktop
           {:doc "Install .desktop files + icons so the apps look native."

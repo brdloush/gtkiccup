@@ -72,6 +72,7 @@
          :class (classes class)}
    [:icon {:slot :prefix :icon icon}]
    [:level {:slot :suffix
+            :valign :center
             :value (or (:value metric) 0)
             :width (or width 170)
             :class (into ["metric"] (classes class))}]])
@@ -79,7 +80,7 @@
 (defn process-row [i {:keys [name pid label value]}]
   [:row {:title (str (inc i) ". " name)
          :subtitle (str "pid " pid "  ·  " label)}
-   [:level {:slot :suffix :value value :width 170 :class "metric"}]
+   [:level {:slot :suffix :valign :center :value value :width 170 :class "metric"}]
    [:icon-button {:slot :suffix
                   :icon "edit-copy-symbolic"
                   :class "flat"
@@ -118,6 +119,7 @@
    [:toolbar-view {}
     [:header-bar {:slot :top}
      [:window-title {:title "System Monitor"
+                     :slot :center
                      :subtitle (if-let [s @state]
                                  (str (:host s) "  ·  babashka + GTK4")
                                  "starting")}]

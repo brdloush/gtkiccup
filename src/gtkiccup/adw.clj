@@ -19,16 +19,15 @@
      :clamp          AdwClamp, keeps content a readable width
      :banner         AdwBanner, an inline notice strip
      :spinner        AdwSpinner
-     :picture        GtkPicture from a file, SVG included
      :scroll         GtkScrolledWindow
-     :level          GtkLevelBar
      :icon-button    GtkButton from an icon name
 
    Slots are a plain `:slot` prop on the child, honoured by the parent's
    :append. A child with no :slot goes to the parent's main content."
   (:require [babashka.ffi :as ffi :refer [defcfn]]
             [gtkiccup.core :as ui]
-            [gtkiccup.ffi :as g]))
+            [gtkiccup.ffi :as g]
+            [gtkiccup.widgets :as w]))
 
 (g/load-gtk-library "adwaita-1" 0)
 
@@ -57,6 +56,9 @@
 (defcfn header-pack-start "adw_header_bar_pack_start" [:pointer :pointer] :void)
 (defcfn header-pack-end "adw_header_bar_pack_end" [:pointer :pointer] :void)
 (defcfn header-remove "adw_header_bar_remove" [:pointer :pointer] :void)
+(defcfn header-set-show-start-title-buttons "adw_header_bar_set_show_start_title_buttons" [:pointer :int] :void)
+(defcfn header-set-show-end-title-buttons "adw_header_bar_set_show_end_title_buttons" [:pointer :int] :void)
+(defcfn header-set-decoration-layout "adw_header_bar_set_decoration_layout" [:pointer :string] :void)
 
 (defcfn window-title-new "adw_window_title_new" [:string :string] :pointer)
 (defcfn window-title-set-title "adw_window_title_set_title" [:pointer :string] :void)
@@ -100,10 +102,6 @@
 (defcfn carousel-set-interactive "adw_carousel_set_allow_scroll_wheel" [:pointer :int] :void)
 (defcfn carousel-set-mouse-drag "adw_carousel_set_allow_mouse_drag" [:pointer :int] :void)
 (defcfn carousel-set-indicator "adw_carousel_set_reveal_duration" [:pointer :int] :void)
-(defcfn picture-new "gtk_picture_new" [] :pointer)
-(defcfn picture-set-paintable "gtk_picture_set_paintable" [:pointer :pointer] :void)
-(defcfn picture-set-content-fit "gtk_picture_set_content_fit" [:pointer :int] :void)
-(defcfn texture-from-filename "gdk_texture_new_from_filename" [:string :pointer] :pointer)
 (defcfn revealer-new "gtk_revealer_new" [] :pointer)
 (defcfn revealer-set-child "gtk_revealer_set_child" [:pointer :pointer] :void)
 (defcfn revealer-set-reveal "gtk_revealer_set_reveal_child" [:pointer :int] :void)
@@ -120,17 +118,9 @@
 (defcfn scroll-new "gtk_scrolled_window_new" [] :pointer)
 (defcfn scroll-set-policy "gtk_scrolled_window_set_policy" [:pointer :int :int] :void)
 (defcfn scroll-set-child "gtk_scrolled_window_set_child" [:pointer :pointer] :void)
-(defcfn level-new "gtk_level_bar_new" [] :pointer)
-(defcfn level-set-value "gtk_level_bar_set_value" [:pointer :double] :void)
-(defcfn level-set-min "gtk_level_bar_set_min_value" [:pointer :double] :void)
-(defcfn level-set-max "gtk_level_bar_set_max_value" [:pointer :double] :void)
-(defcfn level-set-mode "gtk_level_bar_set_mode" [:pointer :int] :void)
 (defcfn button-new-from-icon "gtk_button_new_from_icon_name" [:string] :pointer)
 (defcfn button-set-icon-name "gtk_button_set_icon_name" [:pointer :string] :void)
 (defcfn widget-set-size-request "gtk_widget_set_size_request" [:pointer :int :int] :void)
-(defcfn widget-set-valign "gtk_widget_set_valign" [:pointer :int] :void)
-
-(def ALIGN-CENTER 3)
 
 ;; ---------------------------------------------------------------------------
 ;; the window, for (ui/run ... :window adw/window)
@@ -148,15 +138,13 @@
 
 (defn- slot-of [props] (:slot props :content))
 
-(defn- set-picture-file!
-  "Loads `path` into a GtkPicture. Silently leaves it blank if the file is not
-   there, so a missing logo cannot stop an app starting."
-  [pic path]
-  (let [tex (when path
-              (try (let [t (texture-from-filename (str path) nil)]
-                     (when-not (g/null? t) t))
-                   (catch Throwable _ nil)))]
-    (picture-set-paintable pic (or tex ffi/null))))
+(defn- apply-header-bar! [w p changed]
+  (when (contains? changed :show-title-buttons)
+    (let [show (g/->gbool (get p :show-title-buttons true))]
+      (header-set-show-start-title-buttons w show)
+      (header-set-show-end-title-buttons w show)))
+  (when (contains? changed :decoration-layout)
+    (header-set-decoration-layout w (:decoration-layout p))))
 
 (defn- nth-child
   "The nth child widget of a container, by walking the sibling chain. Lets a
@@ -207,17 +195,15 @@
                               (:top :bottom) (toolbar-remove parent child)
                               (toolbar-set-content parent nil)))}
 
-   :header-bar   {:ctor   (fn [_] (header-bar-new))
-                  :apply  (fn [_ _ _] nil)
-                  :append (fn [parent child props]
-                            (case (slot-of props)
-                              :start (header-pack-start parent child)
-                              :end   (header-pack-end parent child)
-                              (header-set-title-widget parent child)))
-                  :remove (fn [parent child props]
-                            (case (slot-of props)
-                              (:start :end) (header-remove parent child)
-                              (header-set-title-widget parent nil)))}
+   ;; AdwHeaderBar splits GTK's show-title-buttons into a start and an end
+   ;; flag; one :show-title-buttons prop sets both, so the core and the
+   ;; adwaita bar share a schema.
+   :header-bar   (merge {:ctor  (fn [p] (doto (header-bar-new) (apply-header-bar! p (set (keys p)))))
+                         :apply apply-header-bar!}
+                        (w/packed {:start  header-pack-start
+                                   :center header-set-title-widget
+                                   :end    header-pack-end}
+                                  header-remove))
 
    :window-title {:text-prop :title
                   :ctor  (fn [p] (window-title-new (str (:title p ""))
@@ -304,18 +290,6 @@
    :spinner      {:ctor  (fn [_] (spinner-new))
                   :apply (fn [_ _ _] nil)}
 
-   ;; An image from a file -- SVG included, because GdkTexture goes through the
-   ;; pixbuf loaders. A missing or unreadable file leaves the picture empty
-   ;; rather than raising: a logo is decoration, not a reason to fail to start.
-   :picture      {:text-prop :file
-                  :ctor  (fn [p]
-                           (doto (picture-new)
-                             (picture-set-content-fit 0)   ; CONTAIN
-                             (set-picture-file! (:file p))))
-                  :apply (fn [w p changed]
-                           (when (contains? changed :file)
-                             (set-picture-file! w (:file p))))}
-
    ;; Motion, declaratively. :page is an index; when it changes, :apply
    ;; animates there. So an animation is a side effect of a prop change and the
    ;; app stays a pure function of state.
@@ -334,9 +308,9 @@
                   ;; the pages do not exist when :ctor and :apply run, so the
                   ;; starting page has to be set once they do -- and without
                   ;; animation, since there is nothing to animate from
-                  :after-children (fn [w p]
-                                    (when-let [child (nth-child w (:page p 0))]
-                                      (carousel-scroll-to w child 0)))
+                  :on-mount (fn [w p]
+                                       (when-let [child (nth-child w (:page p 0))]
+                                         (carousel-scroll-to w child 0)))
                   :append (fn [parent child _props] (carousel-append parent child))
                   :remove (fn [parent child _props] (carousel-remove parent child))}
 
@@ -352,20 +326,6 @@
                         (single-child revealer-set-child))
 
    ;; -- leaves ------------------------------------------------------------
-   :level        {:ctor  (fn [p]
-                           (doto (level-new)
-                             (level-set-min (double (:min p 0)))
-                             (level-set-max (double (:max p 1)))
-                             (level-set-value (double (:value p 0)))
-                             (widget-set-valign ALIGN-CENTER)))
-                  :apply (fn [w p changed]
-                           (when (contains? changed :min)
-                             (level-set-min w (double (:min p 0))))
-                           (when (contains? changed :max)
-                             (level-set-max w (double (:max p 1))))
-                           (when (contains? changed :value)
-                             (level-set-value w (double (:value p 0)))))}
-
    :icon-button  {:text-prop :icon
                   :ctor  (fn [p] (button-new-from-icon (:icon p)))
                   :apply (fn [w p changed]

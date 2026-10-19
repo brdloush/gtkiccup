@@ -29,7 +29,7 @@
    [:toast-overlay {}
     [:toolbar-view {}
      [:header-bar {:slot :top}
-      [:window-title {:title "System Monitor" :subtitle (:sub @state "live")}]
+      [:window-title {:slot :center :title "System Monitor" :subtitle (:sub @state "live")}]
       [:icon-button {:slot :end :icon "view-refresh-symbolic"}]]
      [:scroll {}
       [:page {}

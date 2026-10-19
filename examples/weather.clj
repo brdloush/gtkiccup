@@ -245,6 +245,7 @@
      [:toolbar-view {}
       [:header-bar {:slot :top}
        [:window-title {:title (t :ui/title)
+                       :slot :center
                        :subtitle (or (:name (:place config)) "")}]
        [:entry {:slot :start
                 :value ""

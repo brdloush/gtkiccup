@@ -173,6 +173,6 @@
   "A normalized node -> Replicant hiccup."
   ([node] (->replicant node @w/signals))
   ([{:keys [tag props children]} signals]
-   (into [tag (->attrs props signals)]
+   (into [tag (->attrs props (merge signals (:signals (@w/widgets (base-tag tag)))))]
          (map #(->replicant % signals))
          children)))

@@ -28,6 +28,18 @@
               :app   (fn [] (monitor/app))
               :css   (fn [] monitor/css)
               :overlay! (fn [w] (reset! monitor/overlay w))}
+   "gallery" {:path "docs/images/gallery.png"
+              :title "gtkiccup · Widget gallery"
+              ;; a delay, like the resolves below: the gallery and its schemas
+              ;; stay unloaded while another app is being shot
+              :size (delay @(requiring-resolve 'gallery.main/window-size))
+              :settle 1200
+              :start (fn []
+                       ((requiring-resolve 'gallery.main/prepare!))
+                       (fn []))
+              :app (fn [] (requiring-resolve 'gallery.main/gallery))
+              :css (fn [] "")
+              :overlay! (fn [_] nil)}
    "deck"    {:path "docs/images/deck.png"
               :title "Deck"
               :size [900 620]
@@ -54,13 +66,14 @@
         {:keys [size settle title] :as t}
         (or (get targets name)
             (throw (ex-info (str "unknown target " name) {:known (keys targets)})))
+        [width height] (force size)
         out  (or path (:path t))
         stop ((:start t))]
     (fs/create-dirs (fs/parent out))
     (try
       (ui/run ((:app t))
               :title title
-              :width (first size) :height (second size)
+              :width width :height height
               :window adw/window
               ;; some apps measure their own laid-out widgets -- a caret placed
               ;; from a label's text geometry, say -- and that only works on a

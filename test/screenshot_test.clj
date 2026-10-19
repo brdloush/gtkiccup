@@ -11,7 +11,7 @@
           (ui/run (fn [] [:toast-overlay {}
                           [:toolbar-view {}
                            [:header-bar {:slot :top}
-                            [:window-title {:title "Screenshot test" :subtitle "gsk"}]]
+                            [:window-title {:slot :center :title "Screenshot test" :subtitle "gsk"}]]
                            [:scroll {} [:page {} [:group {:title "Group"}
                                                  [:row {:title "row" :subtitle "sub"}
                                                   [:level {:slot :suffix :value 0.5}]]]]]]])
