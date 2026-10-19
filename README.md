@@ -52,6 +52,11 @@ GTK widgets, and keeps them up to date as the state changes.
 - **A proven diff.** The diffing is done by
   [Replicant](https://github.com/cjohansen/replicant), with keyed children,
   lifecycle hooks and handlers as data. gtkiccup is the GTK side of it.
+- **Memoized components.** Mark a pure view fn with
+  `gtkiccup.hiccup/memoized` and its expansion (down to its translated
+  Replicant form) is reused while its args are `=` -- a big list whose rows
+  did not change re-renders as one pointer compare per row. See
+  `docs/internals.md`.
 
 ## Background
 

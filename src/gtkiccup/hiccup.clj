@@ -22,6 +22,82 @@
   dispatch
   (atom nil))
 
+(def ^:private hook-keys
+  #{:replicant/on-mount :replicant/on-update :replicant/on-unmount :replicant/on-render})
+
+;; ---------------------------------------------------------------------------
+;; Component memoization
+;; ---------------------------------------------------------------------------
+;;
+;; A render re-runs every function component in the tree, even when nothing it
+;; depends on has changed. `memoized` opts a view fn out of that: `normalize`
+;; caches the expansion of [fn args...] and reuses it while the args are `=`.
+;; The cached value carries its own `->replicant` output under
+;; :replicant/cached, so a hit skips both the component call and the
+;; translation of its subtree.
+;;
+;; Two rules make this safe:
+;;
+;;   - A memoized view fn must be PURE in its args: same args -> same tree. It
+;;     must not deref application state, read time, or use rand. If it does,
+;;     the cache serves a stale tree forever -- either pass everything it
+;;     renders through args, or don't memoize it.
+;;   - Expansions containing lifecycle hooks (any :replicant/on-* prop anywhere
+;;     in the subtree) are never cached: `hook` closes over the render-scoped
+;;     *defer-hook*, so a cached wrapper would defer to a dead render.
+
+(declare ->replicant)
+
+(defonce ^:private memo-cache (atom {}))
+
+(defonce ^:private data-handler-cache (atom {}))
+
+(def ^:private memo-cache-max
+  "Whole-cache eviction: at the cap the cache is cleared rather than aged.
+   A view is a handful of component shapes, so a miss after a clear costs one
+   expansion each -- cheap, and it keeps the cache a plain `=`-keyed map."
+  4000)
+
+(defn memoized
+  "Mark a pure view fn as cacheable by `normalize`.
+
+   (def row (h/memoized row-fn))
+   [:vbox {} [row track playing-id]]
+
+   See the note at the top of this namespace: the fn must render only from its
+   args. Reuse one marked fn (a def), the cache keys on its identity."
+  [f]
+  (with-meta f {:gtkiccup/memo true}))
+
+(defn clear-memo!
+  "Drop every cached component expansion (and the cached data handlers).
+   Useful in tests and after re-defining components in a REPL."
+  []
+  (reset! memo-cache {})
+  (reset! data-handler-cache {}))
+
+(defn- node-has-hooks?
+  "Any :replicant/on-* prop anywhere in a normalized subtree."
+  [{:keys [props children]}]
+  (boolean (or (some hook-keys (keys props))
+               (some node-has-hooks? children))))
+
+(defn- memo-lookup [tag more]
+  (when (:gtkiccup/memo (meta tag))
+    (get @memo-cache [tag (vec more)])))
+
+(defn- memo-store! [tag more node]
+  "Return the node to keep for this expansion: the cached one when tag is
+   `memoized` and the subtree is hook-free, otherwise `node` unchanged."
+  (if (and (:gtkiccup/memo (meta tag))
+           (not (node-has-hooks? node)))
+    (do (when (>= (count @memo-cache) memo-cache-max)
+          (reset! memo-cache {}))
+        (let [cached (assoc node :replicant/cached (->replicant node))]
+          (swap! memo-cache assoc [tag (vec more)] cached)
+          cached))
+    node))
+
 (defn- text-like?
   "A child that reads as content rather than as a widget."
   [x]
@@ -80,7 +156,11 @@
    Returns {:tag kw :props map :children [normalized...]} or nil.
 
    Runs over the whole tree before `reconcile` touches a single widget, so a
-   malformed view is rejected without half-mutating the window."
+   malformed view is rejected without half-mutating the window.
+
+   Expansions of components marked with `memoized` are cached on [fn args];
+   a hit returns the cached subtree (carrying its prebuilt :replicant/cached
+   form) without calling the fn. See the memoization note above."
   ([form] (normalize form nil))
   ([form parent]
    (cond
@@ -89,7 +169,8 @@
      :else
      (let [[tag & more] form]
        (if (fn? tag)
-         (normalize (apply tag more) parent)
+         (or (memo-lookup tag more)
+             (memo-store! tag more (normalize (apply tag more) parent)))
          (let [spec (or (@w/widgets (base-tag tag))
                         (hiccup-error!
                          (str "unknown widget " (pr-str tag)
@@ -133,25 +214,31 @@
 
 (defn- data-handler
   "A handler that is data, not a fn -- [:todo/toggle 3], say. It is sent to
-   the dispatch fn along with what the signal produced. A fresh fn per render,
-   which costs nothing: the renderer swaps it into the existing connection."
+   the dispatch fn along with what the signal produced. Cached by [prop data]
+   so repeated renders produce `=` (indeed identical) handler fns, which keeps
+   Replicant's attribute diff from seeing churn; the fn resolves @dispatch at
+   call time, so a later set-dispatch! still takes effect. (Corollary: a
+   cached handler invoked after set-dispatch! nil would call a nil fn -- the
+   pre-memoization code captured the fn instead. Only tests reset dispatch.)"
   [prop data]
-  (let [f @dispatch]
-    (when-not f
-      (hiccup-error!
-       (str prop " is data, not a fn: " (pr-str data)
-            "\n  data handlers need (gtkiccup.core/set-dispatch! f) first")
-       {:prop prop :handler data}))
-    (fn [& args]
-      (f {:gtkiccup/event prop :gtkiccup/args (vec args)} data))))
+  (if-let [cached (get @data-handler-cache [prop data])]
+    cached
+    (do (when-not @dispatch
+          (hiccup-error!
+           (str prop " is data, not a fn: " (pr-str data)
+                "\n  data handlers need (gtkiccup.core/set-dispatch! f) first")
+           {:prop prop :handler data}))
+        (let [f (fn [& args]
+                  (@dispatch {:gtkiccup/event prop :gtkiccup/args (vec args)} data))]
+          (when (>= (count @data-handler-cache) memo-cache-max)
+            (reset! data-handler-cache {}))
+          (swap! data-handler-cache assoc [prop data] f)
+          f))))
 
 (def ^:dynamic *defer-hook*
   "Bound by the renderer for the length of a render: takes a thunk and runs it
    once GTK is in sync. nil outside a render, and then a hook runs at once."
   nil)
-
-(def ^:private hook-keys
-  #{:replicant/on-mount :replicant/on-update :replicant/on-unmount :replicant/on-render})
 
 (defn- hook
   "Replicant calls lifecycle hooks at the end of its diff, which here is
@@ -195,9 +282,13 @@
    props))
 
 (defn ->replicant
-  "A normalized node -> Replicant hiccup."
-  ([node] (->replicant node @w/signals))
+  "A normalized node -> Replicant hiccup.
+
+   Nodes from `normalize` whose expansion was cached by `memoized` carry that
+   form prebuilt under :replicant/cached, and it is reused as-is -- the
+   widget/signal tables are static once loaded, so a cached form stays valid."
+  ([node] (or (:replicant/cached node) (->replicant node @w/signals)))
   ([{:keys [tag props children]} signals]
    (into [tag (->attrs props signals)]
-         (map #(->replicant % signals))
+         (map #(or (:replicant/cached %) (->replicant % signals)))
          children)))

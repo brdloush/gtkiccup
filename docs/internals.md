@@ -34,6 +34,19 @@ cover-card cards)`, `(mapcat ...)` output and nested runs of them splice like
 a seq would -- a vector of children is not a widget form.
 `test/splice_test.clj` covers it.
 
+A render re-runs every function component, even one nothing has changed.
+`gtkiccup.hiccup/memoized` opts a view fn out of that: `normalize` caches the
+expansion of `[fn args]` and reuses it -- including the subtree's prebuilt
+`->replicant` form -- while the args are `=`. Two rules keep this honest. The
+fn must be **pure in its args** (same args, same tree: no derefing app state,
+no clock, no rand -- pass everything it renders through args), and expansions
+containing lifecycle hooks are never cached, because a hook wrapper closes
+over render-scoped state. Eviction is a whole-cache clear at 4000 entries:
+views are a handful of shapes, so a miss after a clear is one expansion each.
+Handlers written as data (`{:on-click [:thing/do 3]}`) are memoized by
+`[prop data]` too, so two renders produce identical handler values and the
+diff sees no churn. `test/memo_test.clj` asserts both the wins and the rules.
+
 Replicant talks to its host only through one protocol, `IRender`: create an
 element, set an attribute, insert a child before another, remove one.
 `gtkiccup.renderer` is that protocol for GTK, extended through metadata, so
