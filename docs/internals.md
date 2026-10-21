@@ -41,11 +41,21 @@ expansion of `[fn args]` and reuses it -- including the subtree's prebuilt
 fn must be **pure in its args** (same args, same tree: no derefing app state,
 no clock, no rand -- pass everything it renders through args), and expansions
 containing lifecycle hooks are never cached, because a hook wrapper closes
-over render-scoped state. Eviction is a whole-cache clear at 4000 entries:
-views are a handful of shapes, so a miss after a clear is one expansion each.
+over render-scoped state. The cache is bounded by an **estimated-bytes
+budget**, not an entry count: each entry retains the expansion *and* its
+prebuilt Replicant form keyed by the row's own args, so a real app's rows are
+big entries (measured ~40KB of JVM heap per distinct row) and a count-only cap
+let a long session outrun the heap before the cap fired. A hit bumps an access
+clock, so the page currently on screen is the last thing evicted and the rows
+of pages navigated away from are what the budget reclaims; `memo-cache-max`
+(4000 entries) survives as a secondary count bound. The budget is 16MB per
+cache by default (`GTKICCUP_MEMO_BUDGET_KB` in KB); `memo-stats` reports
+entries and cost for probes.
 Handlers written as data (`{:on-click [:thing/do 3]}`) are memoized by
 `[prop data]` too, so two renders produce identical handler values and the
-diff sees no churn. `test/memo_test.clj` asserts both the wins and the rules.
+diff sees no churn; the same budget bounds that cache, since its keys retain
+the data. `test/memo_test.clj` asserts both the wins and the rules,
+`test/memo_budget_test.clj` the bound (and that the hot set is never evicted).
 
 Replicant talks to its host only through one protocol, `IRender`: create an
 element, set an attribute, insert a child before another, remove one.
