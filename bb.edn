@@ -76,6 +76,7 @@
                             "test/splice_test.clj"
                             "test/props_test.clj"
                             "test/memo_test.clj"
+                            "test/memo_budget_test.clj"
                             "test/extension_test.clj"
                             "test/adw_test.clj"
                             "test/application_test.clj"
