@@ -14,10 +14,19 @@
    anything -- `openmeteo` already hands over a view model in the language in
    force, so a switch is just a rebuild from the cached response.
 
+   The hourly/day/detail rows are late-bound ALIASES (`:weather/hour`,
+   `:weather/day`, `:weather/detail`) and every header action is a DATA handler
+   dispatched by the one `ui/set-dispatch!` fn below. The page resolves the
+   localized now-label and reads `@state` before emitting each row, so nothing
+   live or language-dependent is baked into an expansion -- a units or language
+   switch rebuilds the view model, which moves the attrs and re-expands only
+   those rows. See docs/widgets.md (#components-as-aliases, #handlers-as-data).
+
    Run it with `bb weather`."
   (:require [babashka.fs :as fs]
             [clojure.edn :as edn]
             [gtkiccup.adw :as adw]
+            [gtkiccup.alias :as ga]
             [gtkiccup.core :as ui]
             [gtkiccup.ffi :as g]
             [gtkiccup.ratom :as r]
@@ -170,63 +179,100 @@
                      (write-config! cfg)
                      (assoc s :config cfg :vm (vm-from cfg)))))))
 
+(ui/set-dispatch!
+  (fn [{:gtkiccup/keys [args]} [action]]
+    (case action
+      :weather/search
+      (let [q (first args)]
+        (future
+          (if-let [hit (first (om/search-places! q))]
+            (do (set-place! hit)
+                (when-let [o @overlay]
+                  (adw/toast! o (str (:name hit) ", " (:country hit)))))
+            (when-let [o @overlay]
+              (adw/toast! o (t :ui/no-place q))))))
+
+      :weather/refresh (future (refresh!))
+
+      :weather/units   (toggle-units!)
+
+      :weather/lang    (set-language! (next-language i18n/*lang*)))))
+
 ;; ---------------------------------------------------------------------------
 ;; view
 ;; ---------------------------------------------------------------------------
 
-(defn hour-cell [now? {:keys [time temp-label precip icon]}]
-  [:vbox {:spacing 3 :halign :center
-          :class (if now? ["hour" "now"] ["hour"])}
-   [:label {:class "h-time" :halign :center :label (if now? (t :ui/now) time)}]
-   [:icon {:icon icon :size 20 :halign :center}]
-   [:label {:class "h-temp" :halign :center :label temp-label}]
-   [:label {:class "h-pop" :halign :center
-            :label (if (and precip (pos? precip)) (str precip "%") " ")}]])
+(ga/register-alias! :weather/hour
+  {:purity :pure}
+  (fn [{:keys [now? label temp-label precip icon]} _children]
+    [:vbox {:spacing 3 :halign :center
+            :class (if now? ["hour" "now"] ["hour"])}
+     [:label {:class "h-time" :halign :center :label label}]
+     [:icon {:icon icon :size 20 :halign :center}]
+     [:label {:class "h-temp" :halign :center :label temp-label}]
+     [:label {:class "h-pop" :halign :center
+              :label (if (and precip (pos? precip)) (str precip "%") " ")}]]))
 
 (defn hero [{:keys [place current today hourly sky-class]}]
-  [:bin {:class ["hero" sky-class]}
-   [:vbox {:spacing 2 :margin 18}
-    [:label {:class "place" :halign :center
-             :label (str (:name place)
-                         (when (:country place) (str "  ·  " (:country place))))}]
-    [:label {:class "temp" :halign :center :label (:temp current)}]
-    [:hbox {:spacing 8 :halign :center}
-     [:icon {:icon (:icon current) :size 22}]
-     [:label {:class "condition" :label (:label current)}]]
-    [:label {:class "sub" :halign :center
-             :label (str (t :ui/feels-like) " " (:feels current)
-                         "   ·   " (t :ui/hi) " " (:hi today)
-                         "   " (t :ui/lo) " " (:lo today))}]
-    [:scroll {:h :automatic :v :never :hexpand true :margin 8 :class "hourly"}
-     (into [:hbox {:spacing 2 :halign :center}]
-           (map-indexed (fn [i h] (hour-cell (zero? i) h)) hourly))]]])
+  ;; the page resolves (t :ui/now) once and hands it to the now-cell as an attr,
+  ;; so the localized string lives in the cache key instead of being read from
+  ;; the language binding inside the alias (where a language switch could not
+  ;; re-expand it). Every other cell ignores it and stays cached.
+  (let [now-label (t :ui/now)]
+    [:bin {:class ["hero" sky-class]}
+     [:vbox {:spacing 2 :margin 18}
+      [:label {:class "place" :halign :center
+               :label (str (:name place)
+                           (when (:country place) (str "  ·  " (:country place))))}]
+      [:label {:class "temp" :halign :center :label (:temp current)}]
+      [:hbox {:spacing 8 :halign :center}
+       [:icon {:icon (:icon current) :size 22}]
+       [:label {:class "condition" :label (:label current)}]]
+      [:label {:class "sub" :halign :center
+               :label (str (t :ui/feels-like) " " (:feels current)
+                           "   ·   " (t :ui/hi) " " (:hi today)
+                           "   " (t :ui/lo) " " (:lo today))}]
+      [:scroll {:h :automatic :v :never :hexpand true :margin 8 :class "hourly"}
+       (into [:hbox {:spacing 2 :halign :center}]
+             (map-indexed (fn [i {:keys [time temp-label precip icon]}]
+                            (let [now? (zero? i)]
+                              [:weather/hour {:now? now?
+                                              :label (if now? now-label time)
+                                              :temp-label temp-label
+                                              :precip precip
+                                              :icon icon}]))
+                          hourly))]]]))
 
-(defn day-row [{:keys [day icon hi lo precip]}]
-  ;; deliberately single-line: the icon already carries the condition, and two
-  ;; lines x 7 days pushes the dashboard past a screen height
-  [:row {:title day :class "dayrow"}
-   [:icon {:slot :prefix :icon icon :size 20}]
-   [:hbox {:slot :suffix :spacing 12 :valign :center}
-    [:label {:class "pop" :label (if (and precip (pos? precip)) (str precip "%") "")}]
-    [:label {:class "d-hi" :label hi}]
-    [:label {:class ["d-lo" "dim-label"] :label lo}]]])
+(ga/register-alias! :weather/day
+  {:purity :pure}
+  (fn [{:keys [day icon hi lo precip]} _children]
+    [:row {:title day :class "dayrow"}
+     [:icon {:slot :prefix :icon icon :size 20}]
+     [:hbox {:slot :suffix :spacing 12 :valign :center}
+      [:label {:class "pop" :label (if (and precip (pos? precip)) (str precip "%") "")}]
+      [:label {:class "d-hi" :label hi}]
+      [:label {:class ["d-lo" "dim-label"] :label lo}]]]))
 
-(defn detail-row [{:keys [title value icon]}]
-  [:row {:title title}
-   [:icon {:slot :prefix :icon icon :size 18}]
-   [:label {:slot :suffix :class "numeric" :valign :center :label value}]])
+(ga/register-alias! :weather/detail
+  {:purity :pure}
+  (fn [{:keys [title value icon]} _children]
+    [:row {:title title}
+     [:icon {:slot :prefix :icon icon :size 18}]
+     [:label {:slot :suffix :class "numeric" :valign :center :label value}]]))
 
 (defn dashboard [{:keys [daily details place] :as vm}]
+  ;; day and detail rows are emitted as ALIAS nodes (plain data); the page hands
+  ;; each value down as an attr so the expansions stay pure over their args.
   [:vbox {:spacing 0}
    (hero vm)
    [:clamp {:max 620}
     [:vbox {:spacing 14 :margin 14}
-     (into [:group {:title (t :ui/week)}] (map day-row daily))
+     (into [:group {:title (t :ui/week)}] (map (fn [{:keys [day icon hi lo precip]}] [:weather/day {:day day :icon icon :hi hi :lo lo :precip precip}]) daily))
      (into [:group {:title (t :ui/details)
                     :description (str (:timezone place)
                                       (when (:elevation place)
                                         (format "  ·  %.0f m" (:elevation place))))}]
-           (map detail-row details))]]])
+           (map (fn [{:keys [title value icon]}] [:weather/detail {:title title :value value :icon icon}]) details))]]])
 
 (defn loading []
   [:status-page {:icon "weather-few-clouds-symbolic"
@@ -250,29 +296,23 @@
                 :value ""
                 :placeholder (t :ui/search)
                 :tooltip (t :ui/search-tip)
-                :on-activate
-                (fn [q]
-                  (future
-                    (if-let [hit (first (om/search-places! q))]
-                      (do (set-place! hit)
-                          (when-let [o @overlay]
-                            (adw/toast! o (str (:name hit) ", " (:country hit)))))
-                      (when-let [o @overlay]
-                        (adw/toast! o (t :ui/no-place q))))))}]
+                ;; the geocode + toast live in the dispatch fn; the query the entry
+                ;; produces on activate arrives there as :gtkiccup/args
+                :on-activate [:weather/search]}]
        [:icon-button {:slot :end
                       :icon "view-refresh-symbolic"
                       :tooltip (t :ui/refresh-tip)
-                      :on-click #(future (refresh!))}]
+                      :on-click [:weather/refresh]}]
        [:button {:slot :end
                  :class "flat"
                  :label (if (= :imperial (:units config)) "°F" "°C")
                  :tooltip (t :ui/units-tip)
-                 :on-click #(toggle-units!)}]
+                 :on-click [:weather/units]}]
        [:button {:slot :end
                  :class "flat"
                  :label (get i18n/language-names i18n/*lang* "EN")
                  :tooltip (t :ui/language-tip)
-                 :on-click #(set-language! (next-language i18n/*lang*))}]]
+                 :on-click [:weather/lang]}]]
       [:vbox {:spacing 0}
        (when (or stale error)
          [:banner {:title (or error stale) :revealed true}])

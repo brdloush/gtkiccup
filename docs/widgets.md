@@ -193,6 +193,62 @@ a hook on the first render reads a width and height of zero. To measure laid-out
 widgets -- text geometry, say -- use `run`'s `:on-layout`, which runs after each
 painted frame.
 
+## Components as aliases
+
+A plain `defn` component re-runs its body on every render, even when nothing it
+shows has changed -- a 200-row list rebuilds 200 subtrees once a second while a
+track plays. To opt out, register the component once as a **late-bound alias**: a
+namespaced keyword plus an expansion fn. The page then emits it as *data*, and
+Replicant expands it lazily inside `reconcile` -- only when the attrs differ.
+
+```clojure
+(ns myapp
+  (:require [gtkiccup.core :as ui]
+            [gtkiccup.alias :as ga]))
+
+;; Register the expansion once, at load. `attrs` is plain data and is BOTH the
+;; cache key and the body's whole input; `children` is any emitted children.
+(ga/register-alias! :app/row
+  (fn [{:keys [i label on-click]} _children]
+    [:button {:class "row" :on-click on-click} (str i ". " label)]))
+
+;; The page emits DATA nodes, not a call. A row whose attrs are unchanged (`=`)
+;; does not re-run the body -- and `on-click` is DATA (a vector), so the row
+;; stays =-stable rather than re-keying on a fresh closure every render.
+(defn view []
+  (let [items (:items @state)]
+    [:vbox
+     (for [[i item] (map-indexed vector items)]
+       [:app/row {:i i :label (:name item)
+                  :on-click [:item/select (:id item)]}])]))
+
+;; Data handlers and data hooks land in one dispatch fn, set once.
+(ui/set-dispatch!
+  (fn [_event [action id]]
+    (case action :item/select (select! id))))
+```
+
+Three rules make the cache behave:
+
+- **The attrs map is the cache key and the body's entire input.** It must be
+  `=`-comparable data -- no fresh closures (use data handlers, [below](#handlers-as-data)).
+  A value the body reads from live state goes stale, so the *page* (which does
+  run every render) reads state and passes it in as attrs.
+- **Near-static config** (theme, country, client id) rides `:alias-data` on
+  `run`, merged into every expansion as `:replicant/alias-data`. It is not for
+  live state: changing it invalidates every alias.
+- **A body may throw safely** -- Replicant catches it and calls
+  `:on-alias-exception` (gtkiccup logs it and keeps the frame) rather than
+  corrupting the tree. `(ga/alias-stats)` exposes per-alias cold-expansion
+  counters, so a cache that never fires is observable, not silent.
+
+The body's result runs through the normal `normalize` + `->replicant` pipeline at
+expansion time, so signals, value boxing, data handlers and lifecycle hooks all
+still apply -- a hook inside an alias body fires exactly once, on mount. See
+[internals](internals.md#rendering) for the data-flow contract and
+`test/alias_test.clj` for the behaviour. This replaces the hand-written
+`gtkiccup.hiccup/memoized`, removed in goal 11.
+
 ## Handlers as data
 
 A handler can be a fn, or data that is sent to one dispatch fn:

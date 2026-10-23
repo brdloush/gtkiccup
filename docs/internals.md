@@ -70,7 +70,7 @@ caught by Replicant and routed to `:on-alias-exception` (our logger, which also
 keeps the frame alive with a placeholder) rather than corrupting the tree. The
 registry keeps per-alias **expansion counters** (`alias-stats`) so a cache that
 never fires is no longer silent -- the failure mode that hid an un-memoized
-stragglers under the old pattern. `test/alias_test.clj` asserts the laziness,
+straggler under the old pattern. `test/alias_test.clj` asserts the laziness,
 the targeted re-expansion, single-fire hooks, and the error path.
 
 **Removed: `gtkiccup.hiccup/memoized`.** The hand-written component memo

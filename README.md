@@ -15,19 +15,27 @@ GTK widgets, and keeps them up to date as the state changes.
   (:require [gtkiccup.core :as ui]
             [gtkiccup.ratom :as r]))
 
+(defonce n (r/atom 0))
+
+;; Handlers are DATA -- one dispatch fn receives every [:counter/*] action.
+(ui/set-dispatch!
+  (fn [_ [action]]
+    (case action
+      :counter/dec   (swap! n dec)
+      :counter/inc   (swap! n inc)
+      :counter/reset (reset! n 0))))
+
 (defn counter []
-  (let [n (r/atom 0)]
-    (fn []
-      [:vbox {:spacing 12 :margin 16}
-       [:label "Count: " @n]
-       [:hbox {:spacing 8}
-        [:button {:label "- 1" :on-click #(swap! n dec)}]
-        [:button {:label "+ 1" :on-click #(swap! n inc)}]
-        [:button {:label "reset" :on-click #(reset! n 0)
-                  :sensitive (not= 0 @n)}]]])))
+  [:vbox {:spacing 12 :margin 16}
+   [:label "Count: " @n]
+   [:hbox {:spacing 8}
+    [:button {:label "- 1" :on-click [:counter/dec]}]
+    [:button {:label "+ 1" :on-click [:counter/inc]}]
+    [:button {:label "reset" :on-click [:counter/reset]
+              :sensitive (not= 0 @n)}]]])
 
 (defn -main [& _]
-  (ui/run (counter) :title "counter" :width 320 :height 160))
+  (ui/run counter :title "counter" :width 320 :height 160))
 ```
 
 <p>

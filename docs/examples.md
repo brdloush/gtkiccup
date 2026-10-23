@@ -152,7 +152,7 @@ bb shot weather   # regenerate a screenshot (the app shoots itself)
 LANG=cs_CZ.UTF-8 bb shot weather docs/images/weather-cs.png   # the same, in Czech
 bb shot monitor
 bb shot deck
-bb test       # all thirty-one test files (see Tests below)
+bb test       # all thirty-four test files (see Tests below)
 bb dev        # nREPL server on 1667, for editor-driven work
 
 bb install-desktop     # Linux: make the apps look native in the switcher and app grid

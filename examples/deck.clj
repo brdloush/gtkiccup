@@ -6,11 +6,22 @@
    turns that into adw_carousel_scroll_to. So the app stays a pure function of
    state even though it moves.
 
+   The slides and their bullet rows are late-bound ALIASES (`:deck/slide`,
+   `:deck/bullet`) and the keyboard is a single DATA handler (`[:deck/key]`)
+   dispatched by the one `ui/set-dispatch!` fn below. That matters because the
+   clock in the chrome re-renders once a second: the alias nodes carry the
+   (unchanged) slide maps as plain-data attrs, so a tick re-expands nothing --
+   only the chrome and, on navigation, the :page attr move. The key handler
+   returns truthy when it consumed a key (so unknown keys still fall through to
+   GTK) and the dispatch fn propagates that return value. See docs/widgets.md
+   (#components-as-aliases, #handlers-as-data).
+
    Run it with `bb deck path/to/talk.md`."
   (:require [babashka.fs :as fs]
             [deck-css]
             [deckmd :as md]
             [gtkiccup.adw :as adw]
+            [gtkiccup.alias :as ga]
             [gtkiccup.core :as ui]
             [gtkiccup.ffi :as g]
             [gtkiccup.ratom :as r]))
@@ -57,18 +68,20 @@
 ;; keys
 ;; ---------------------------------------------------------------------------
 
-(defn on-key
-  "Returns truthy when the key was ours, so unknown keys fall through to GTK."
-  [{:keys [key]}]
-  (when-let [action (md/key-actions key)]
-    (swap! state md/apply-action action)
-    ;; fullscreen and quitting are the two things that are not pure state
-    (let [{:keys [fullscreen? quit?]} @state
-          win (:window @ui/current)]
-      (when win
-        (if fullscreen? (g/window-fullscreen win) (g/window-unfullscreen win)))
-      (when quit? (ui/close!)))
-    true))
+(ui/set-dispatch!
+  (fn [{:gtkiccup/keys [args]} [act]]
+    (case act
+      :deck/key
+      (when-let [action (md/key-actions (:key (first args)))]
+        (swap! state md/apply-action action)
+        ;; fullscreen and quitting are the two things that are not pure state
+        (let [{:keys [fullscreen? quit?]} @state
+              win (:window @ui/current)]
+          (when win
+            (if fullscreen? (g/window-fullscreen win) (g/window-unfullscreen win)))
+          (when quit? (ui/close!)))
+        true)
+      nil)))
 
 ;; ---------------------------------------------------------------------------
 ;; view
@@ -90,12 +103,7 @@
        [:label {:class "heading" :halign :start :wrap true
                 :markup (md/inline heading)}])
      (into [:vbox {:spacing 14}]
-           (map (fn [i]
-                  [:hbox {:spacing 14}
-                   [:label {:class "dot" :valign :start :label "•"}]
-                   [:label {:class "bullet" :halign :start :wrap true
-                            :markup (md/inline i)}]])
-                items))]
+           (map (fn [item] [:deck/bullet {:text item}]) items))]
 
     :quote
     [:vbox {:spacing 10 :valign :center}
@@ -111,10 +119,20 @@
        [:label {:class "prose" :halign :start :wrap true
                 :markup (md/inline text)}])]))
 
-(defn slide [s]
-  [:bin {:class (if (= :title (:type s)) ["slide" "title"] ["slide"])}
-   [:clamp {:max 900}
-    [:bin {:margin 48} (slide-body s)]]])
+(ga/register-alias! :deck/bullet
+  {:purity :pure}
+  (fn [{:keys [text]} _children]
+    [:hbox {:spacing 14}
+     [:label {:class "dot" :valign :start :label "•"}]
+     [:label {:class "bullet" :halign :start :wrap true
+              :markup (md/inline text)}]]))
+
+(ga/register-alias! :deck/slide
+  {:purity :pure}
+  (fn [slide _children]
+    [:bin {:class (if (= :title (:type slide)) ["slide" "title"] ["slide"])}
+     [:clamp {:max 900}
+      [:bin {:margin 48} (slide-body slide)]]]))
 
 (defn- elapsed [ms]
   (let [secs (quot ms 1000)]
@@ -136,11 +154,11 @@
 
 (defn home [state]
   (let [{:keys [slides index] :as s} @state]
-    [:bin {:on-key on-key}
+    [:bin {:on-key [:deck/key]}
      [:vbox {:spacing 0}
       (if (seq slides)
         (into [:carousel {:page index :animate true :vexpand true}]
-              (map slide slides))
+              (map (fn [sl] [:deck/slide sl]) slides))
         [:bin {:vexpand true} (empty-deck (:path s))])
       (chrome s)]]))
 

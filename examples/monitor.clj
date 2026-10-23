@@ -6,8 +6,18 @@
    properties that actually changed. Nothing here touches GTK off the GTK
    thread -- `reset!` on a ratom just sets a dirty flag.
 
+   The metric and process rows are late-bound ALIASES (`:monitor/metric`,
+   `:monitor/process`) and every button is a DATA handler dispatched by the one
+   `ui/set-dispatch!` fn below -- so a poll tick that leaves a row's attrs
+   `=`-equal re-expands nothing, and a `:on-click` is a stable value rather than
+   a fresh closure. Values a signal produces arrive in `:gtkiccup/args`; the
+   toast targets `@overlay` and the refresh reads `@state` only at CLICK time,
+   so no live value is ever baked into an alias expansion.
+   See docs/widgets.md (#components-as-aliases, #handlers-as-data).
+
    Run it with `bb monitor`."
   (:require [gtkiccup.adw :as adw]
+            [gtkiccup.alias :as ga]
             [gtkiccup.core :as ui]
             [gtkiccup.ffi :as g]
             [gtkiccup.ratom :as r]
@@ -64,28 +74,40 @@
 (defn- classes [x]
   (cond (nil? x) [] (string? x) [x] :else (vec x)))
 
-(defn metric-row
-  "One AdwActionRow: icon on the left, label, level bar on the right."
-  [{:keys [icon title metric class width]}]
-  [:row {:title title
-         :subtitle (:label metric)
-         :class (classes class)}
-   [:icon {:slot :prefix :icon icon}]
-   [:level {:slot :suffix
-            :value (or (:value metric) 0)
-            :width (or width 170)
-            :class (into ["metric"] (classes class))}]])
+(ui/set-dispatch!
+  (fn [_ [action name pid]]
+    (case action
+      ;; the copy button carries the process name and pid in its data vector
+      :monitor/toast-pid (when-let [o @overlay]
+                           (adw/toast! o (str name " is pid " pid)))
+      ;; the header refresh button takes no arguments
+      :monitor/sample    (do (future (refresh-now!))
+                             (when-let [o @overlay]
+                               (adw/toast! o "Sampled /proc"))))))
 
-(defn process-row [i {:keys [name pid label value]}]
-  [:row {:title (str (inc i) ". " name)
-         :subtitle (str "pid " pid "  ·  " label)}
-   [:level {:slot :suffix :value value :width 170 :class "metric"}]
-   [:icon-button {:slot :suffix
-                  :icon "edit-copy-symbolic"
-                  :class "flat"
-                  :tooltip "Show this pid in a toast"
-                  :on-click #(when-let [o @overlay]
-                               (adw/toast! o (str name " is pid " pid)))}]])
+(ga/register-alias! :monitor/metric
+  {:purity :pure}
+  (fn [{:keys [icon title metric class width]} _children]
+    [:row {:title title
+           :subtitle (:label metric)
+           :class (classes class)}
+     [:icon {:slot :prefix :icon icon}]
+     [:level {:slot :suffix
+              :value (or (:value metric) 0)
+              :width (or width 170)
+              :class (into ["metric"] (classes class))}]]))
+
+(ga/register-alias! :monitor/process
+  {:purity :pure}
+  (fn [{:keys [i name pid label value]} _children]
+    [:row {:title (str (inc i) ". " name)
+           :subtitle (str "pid " pid "  ·  " label)}
+     [:level {:slot :suffix :value value :width 170 :class "metric"}]
+     [:icon-button {:slot :suffix
+                    :icon "edit-copy-symbolic"
+                    :class "flat"
+                    :tooltip "Show this pid in a toast"
+                    :on-click [:monitor/toast-pid name pid]}]]))
 
 (defn loading []
   [:status-page {:icon "utilities-system-monitor-symbolic"
@@ -93,25 +115,30 @@
                  :description "One moment."}])
 
 (defn dashboard [{:keys [host uptime cores cpu mem swap load disk procs self]}]
+  ;; Rows are emitted as ALIAS nodes (plain data), not function calls. The page
+  ;; reads every live value from the state map here and hands it down as an attr,
+  ;; so the expansion below stays pure over its args.
   [:page {}
    [:group {:title "System"
             :description (str cores " cores  ·  up " uptime)}
-    (metric-row {:icon "utilities-system-monitor-symbolic" :title "Processor" :metric cpu})
-    (metric-row {:icon "drive-harddisk-solidstate-symbolic" :title "Memory" :metric mem})
-    (metric-row {:icon "media-flash-symbolic" :title "Swap" :metric swap})
-    (metric-row {:icon "network-transmit-receive-symbolic" :title "Load average" :metric load})
-    (metric-row {:icon "drive-harddisk-symbolic" :title "Root filesystem" :metric disk})]
+    [:monitor/metric {:icon "utilities-system-monitor-symbolic" :title "Processor" :metric cpu}]
+    [:monitor/metric {:icon "drive-harddisk-solidstate-symbolic" :title "Memory" :metric mem}]
+    [:monitor/metric {:icon "media-flash-symbolic" :title "Swap" :metric swap}]
+    [:monitor/metric {:icon "network-transmit-receive-symbolic" :title "Load average" :metric load}]
+    [:monitor/metric {:icon "drive-harddisk-symbolic" :title "Root filesystem" :metric disk}]]
 
    [:group {:title "This app"
             :description "The window you are looking at, on the same scale as the list below."}
-    (metric-row {:icon "text-x-script-symbolic"
-                 :title (str "babashka  ·  pid " (:pid self))
-                 :metric self
-                 :class "self"})]
+    [:monitor/metric {:icon "text-x-script-symbolic"
+                      :title (str "babashka  ·  pid " (:pid self))
+                      :metric self
+                      :class "self"}]]
 
    [:group {:title "Top processes by memory"
             :description (str "Largest of everything running on " host ".")}
-    (map-indexed process-row procs)]])
+    (map-indexed (fn [i {:keys [name pid label value]}]
+                   [:monitor/process {:i i :name name :pid pid :label label :value value}])
+                 procs)]])
 
 (defn home [state]
   [:toast-overlay {}
@@ -124,10 +151,7 @@
      [:icon-button {:slot :end
                     :icon "view-refresh-symbolic"
                     :tooltip "Sample now"
-                    :on-click (fn []
-                                (future (refresh-now!))
-                                (when-let [o @overlay]
-                                  (adw/toast! o "Sampled /proc")))}]]
+                    :on-click [:monitor/sample]}]]
     [:scroll {}
      (if-let [s @state] (dashboard s) (loading))]]])
 
