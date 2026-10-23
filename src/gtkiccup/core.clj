@@ -230,7 +230,7 @@
    Every GTK call then happens on that thread, which is what GTK requires.
    `refresh!` and `swap!` from the REPL only set a flag, so they are safe."
   [component & {:keys [title width height window css on-ready on-render on-layout
-                       app-id app-name]
+                       app-id app-name alias-data]
                 :or   {title "babashka + gtk4" width 360 height 200
                        window default-window}}]
   ;; Identity first: GTK derives the Wayland app_id from prgname when it creates
@@ -253,7 +253,8 @@
                     ;; normalize first: it validates the whole tree before
                     ;; reconcile mutates any widget
                     (let [vtree (h/normalize (component))]
-                      (vreset! tree (r/reconcile root win @tree vtree))
+                      (vreset! tree (r/reconcile root win @tree vtree
+                                                  (when alias-data {:alias-data alias-data})))
                       (reset! w/last-error nil)
                       (swap! current assoc :tree @tree :error nil)
                       ;; after the widgets exist and carry this frame's props,

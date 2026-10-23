@@ -52,10 +52,13 @@ GTK widgets, and keeps them up to date as the state changes.
 - **A proven diff.** The diffing is done by
   [Replicant](https://github.com/cjohansen/replicant), with keyed children,
   lifecycle hooks and handlers as data. gtkiccup is the GTK side of it.
-- **Memoized components.** Mark a pure view fn with
-  `gtkiccup.hiccup/memoized` and its expansion (down to its translated
-  Replicant form) is reused while its args are `=` -- a big list whose rows
-  did not change re-renders as one pointer compare per row. See
+- **Late-bound aliases.** Register a component once with
+  `gtkiccup.alias/register-alias! :app/row (fn [attrs children] ...)`, emit
+  `[:app/row {...}]` as data, and the body re-runs only when its attrs change --
+  an unchanged row in a 200-row list short-circuits on `=` with no re-expansion.
+  Handlers written as data (`{:on-click [:play {:i 3}]}`) are cached on
+  `[prop data]`, so an unchanged row renders the identical handler fn every
+  tick. Supersedes the removed `gtkiccup.hiccup/memoized`. See
   `docs/internals.md`.
 
 ## Background

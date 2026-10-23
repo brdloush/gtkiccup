@@ -66,7 +66,8 @@
   test    {:doc "Run all 33 test files against real GTK, inside the persistent cage."
            :requires ([cage :as cage])
            :task (if (cage/here?)
-                   (doseq [f ["test/reconcile_test.clj"
+                                      (doseq [f ["test/reconcile_test.clj"
+                            "test/alias_test.clj"
                             "test/keyed_test.clj"
                             "test/signals_test.clj"
                             "test/repl_reload_test.clj"

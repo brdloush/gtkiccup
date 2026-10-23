@@ -34,27 +34,59 @@ cover-card cards)`, `(mapcat ...)` output and nested runs of them splice like
 a seq would -- a vector of children is not a widget form.
 `test/splice_test.clj` covers it.
 
-A render re-runs every function component, even one nothing has changed.
-`gtkiccup.hiccup/memoized` opts a view fn out of that: `normalize` caches the
-expansion of `[fn args]` and reuses it -- including the subtree's prebuilt
-`->replicant` form -- while the args are `=`. Two rules keep this honest. The
-fn must be **pure in its args** (same args, same tree: no derefing app state,
-no clock, no rand -- pass everything it renders through args), and expansions
-containing lifecycle hooks are never cached, because a hook wrapper closes
-over render-scoped state. The cache is bounded by an **estimated-bytes
-budget**, not an entry count: each entry retains the expansion *and* its
-prebuilt Replicant form keyed by the row's own args, so a real app's rows are
-big entries (measured ~40KB of JVM heap per distinct row) and a count-only cap
-let a long session outrun the heap before the cap fired. A hit bumps an access
-clock, so the page currently on screen is the last thing evicted and the rows
-of pages navigated away from are what the budget reclaims; `memo-cache-max`
-(4000 entries) survives as a secondary count bound. The budget is 16MB per
-cache by default (`GTKICCUP_MEMO_BUDGET_KB` in KB); `memo-stats` reports
-entries and cost for probes.
-Handlers written as data (`{:on-click [:thing/do 3]}`) are memoized by
-`[prop data]` too, so two renders produce identical handler values and the
-diff sees no churn; the same budget bounds that cache, since its keys retain
-the data. `test/memo_test.clj` asserts both the wins and the rules,
+A render re-runs every function component, even one nothing has changed. The
+way to opt out is a **late-bound alias**: register a component as a namespaced
+keyword plus an expansion fn (`gtkiccup.alias/register-alias!`), and have the
+page emit it as *data* -- `[:bt/track-row {:album a :track t :playing? p}]`.
+`normalize` recognises a registered qualified keyword and passes the node
+through untouched (a cache key, not a widget yet); `->replicant` emits it
+verbatim; and **Replicant expands it lazily inside `reconcile`** -- its
+`unchanged?` compares the stored alias node against the incoming one, and only
+when the attrs differ does it call the registered fn. A hit expands nothing and
+walks nothing: the whole subtree short-circuits on identity. This is the
+upstream mechanism (no fork, no patch of Replicant); the cache *is* Replicant's
+own vdom, so it needs no separate LRU.
+
+Two rules keep it honest, both inherited from Replicant's diff:
+
+- **The attrs map is the cache key AND the expansion's whole input.** The
+  expansion reads nothing but its `attrs`/`children`, and those must be plain
+  `=`-comparable data (maps, vectors, keywords, numbers, strings, data handlers
+  like `[:bt/play {:id 7}]`). A fresh CLOSURE in an attr re-keys every render
+  (the expansion never hits) -- that is why handlers are data, not closures
+  (`:on-click [:thing/do 3]`, dispatched via `set-dispatch!`). A value the
+  expansion reads from live state goes stale, because a state move that does
+  not change an attr never re-expands; so the *page* (which runs every render)
+  reads live values and passes them in as attrs.
+- **Near-static config** rides `:replicant/alias-data` (the `:alias-data` run
+  opt), merged into every expansion's attrs by Replicant. It is NOT for live
+  state: changing it invalidates every alias expansion.
+
+Lifecycle hooks are fine inside an alias body: expansion runs *inside*
+`reconcile`, under the renderer's current `*defer-hook*`, so a cached-in-vdom
+alias subtree is a mounted widget whose hooks already fired -- the old
+"hooks defeat the cache" rule is a non-issue here. A throwing expansion is
+caught by Replicant and routed to `:on-alias-exception` (our logger, which also
+keeps the frame alive with a placeholder) rather than corrupting the tree. The
+registry keeps per-alias **expansion counters** (`alias-stats`) so a cache that
+never fires is no longer silent -- the failure mode that hid an un-memoized
+stragglers under the old pattern. `test/alias_test.clj` asserts the laziness,
+the targeted re-expansion, single-fire hooks, and the error path.
+
+**Removed: `gtkiccup.hiccup/memoized`.** The hand-written component memo
+(body/prep/marker/node-emitter per component, an emit-`[fn args]` ritual whose
+silent no-op only a mutation test caught) is superseded by aliases and was
+deleted in goal 11: `h/memoized`, `node-has-hooks?` and the component memo-cache
+are gone from `gtkiccup.hiccup`. Unchanged subtrees now short-circuit on
+`identical?` at the Replicant level, so nothing is re-diffed. Do not adopt the
+old pattern for new components.
+
+Handlers written as data (`{:on-click [:thing/do 3]}`) are cached by
+`[prop data]` so two renders produce identical handler values and the diff sees
+no churn; that cache (the one cache left in hiccup) is bounded by the same
+**estimated-bytes budget**, as its keys retain the data.
+`test/memo_test.clj` asserts the data-handler identity/dispatch and that plain
+fn components re-run every render (no component cache);
 `test/memo_budget_test.clj` the bound (and that the hot set is never evicted).
 
 Replicant talks to its host only through one protocol, `IRender`: create an

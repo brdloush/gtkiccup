@@ -58,6 +58,46 @@
 (assert (empty? (refs/names)))
 (println "   -> stable across re-renders")
 
+(println "7) two live widgets sharing a name: last wins, warned exactly ONCE")
+(def err7 (java.io.StringWriter.))
+(binding [*err* err7]
+  (def tc (reconcile root-spec win nil (normalize [:vbox {}
+                                                   [:label {:ref "dup"} "a"]
+                                                   [:label {:ref "dup"} "b"]])))
+  ;; unmount and build the same colliding tree again: a second genuine
+  ;; collision for the same name must not fill the log
+  (reconcile root-spec win tc (normalize [:vbox {}]))
+  (def tc2 (reconcile root-spec win nil (normalize [:vbox {}
+                                                    [:label {:ref "dup"} "a"]
+                                                    [:label {:ref "dup"} "b"]]))))
+(let [s (str err7)]
+  (assert (= 1 (count (re-seq #"ref collision" s)))
+          (str "warning count wrong: " (pr-str s)))
+  (assert (.contains s "\"dup\"") (str "name missing from: " (pr-str s)))
+  (assert (identical? (:widget (node tc2 1)) (refs/resolve "dup"))
+          "resolve did not find the last-built widget"))
+(println "   -> one warning for \"dup\" across two colliding renders")
+
+(println "8) a rebuild handing the name to a fresh widget does NOT warn")
+(refs/clear!) ;; forget the warned name: this case must stay silent on its own
+(def err8 (java.io.StringWriter.))
+(binding [*err* err8]
+  (def tm (reconcile root-spec win nil (normalize [:vbox {}
+                                                   [:label {:ref "mv"} "held"]
+                                                   [:label "plain"]])))
+  ;; the ref moves to the other position: the new widget registers while the
+  ;; old element is still mounted, and the old element's release cancels the
+  ;; pending collision -- a handover, not two simultaneous live widgets
+  (def tm2 (reconcile root-spec win tm (normalize [:vbox {}
+                                                   [:label "plain"]
+                                                   [:label {:ref "mv"} "held"]]))))
+(let [s (str err8)]
+  (assert (not (.contains s "ref collision"))
+          (str "false positive on a rebuild handover: " (pr-str s)))
+  (assert (identical? (:widget (node tm2 1)) (refs/resolve "mv"))
+          "the moved ref did not reach the new widget"))
+(println "   -> silent handover, ref moved to position 1")
+
 (g/window-destroy win)
 (println "ALL OK")
 (System/exit 0)

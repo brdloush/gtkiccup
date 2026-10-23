@@ -32,6 +32,7 @@
    - **Text is a prop.** Text children were folded into the widget's text prop
      by `gtkiccup.hiccup/normalize`, so Replicant never makes a text node."
   (:require [gtkiccup.ffi :as g]
+            [gtkiccup.alias :as ga]
             [gtkiccup.hiccup :as h]
             [gtkiccup.refs :as refs]
             [gtkiccup.widgets :as w]
@@ -369,15 +370,30 @@
 (defn reconcile
   "Renders the normalized `vnode` into `window`, diffing against `old-tree` --
    what the previous call returned, or nil the first time. Returns the new tree
-   snapshot, which carries Replicant's state in its metadata for the next call."
-  [root-spec window old-tree vnode]
-  (let [{:keys [root vdom unmounts unmount-hooks]} (meta old-tree)
-        root (or root (root-element root-spec window))
-        res  (binding [h/*defer-hook* #(owe! :hooks %)]
-               (try
-                 (rc/reconcile renderer root (some-> vnode h/->replicant) vdom
-                               {:unmounts unmounts :unmount-hooks unmount-hooks})
-                 (finally (flush!))))]
-    (with-meta (or (some-> (first (:kids @root)) snapshot) {})
-      {:root root :vdom (:vdom res)
-       :unmounts (:unmounts res) :unmount-hooks (:unmount-hooks res)})))
+   snapshot, which carries Replicant's state in its metadata for the next call.
+
+   `opts` (optional) carries `:alias-data`, merged into every late-bound alias
+   expansion's attrs by Replicant (near-static config only, see `gtkiccup.alias`).
+   The alias registry and our on-alias-exception logger are always supplied;
+   Replicant calls the registered fns lazily, only when a node's attrs changed."
+  ([root-spec window old-tree vnode]
+   (reconcile root-spec window old-tree vnode nil))
+  ([root-spec window old-tree vnode opts]
+   (let [{:keys [root vdom unmounts unmount-hooks]} (meta old-tree)
+         root (or root (root-element root-spec window))
+         res  (binding [h/*defer-hook* #(owe! :hooks %)]
+                (try
+                  (rc/reconcile renderer root (some-> vnode h/->replicant) vdom
+                                {:unmounts unmounts :unmount-hooks unmount-hooks
+                                 :aliases (h/aliases-for-render)
+                                 :alias-data (:alias-data opts)
+                                 :on-alias-exception ga/on-alias-exception})
+                  (finally
+                    (flush!)
+                    ;; end of render: a ref collision whose displaced widget
+                    ;; survived this whole render means two widgets are alive
+                    ;; under one name -- warn once per name (gtkiccup.refs).
+                    (refs/render-done!))))]
+     (with-meta (or (some-> (first (:kids @root)) snapshot) {})
+       {:root root :vdom (:vdom res)
+        :unmounts (:unmounts res) :unmount-hooks (:unmount-hooks res)}))))

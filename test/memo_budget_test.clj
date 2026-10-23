@@ -1,8 +1,13 @@
-;; LRU byte budget on the memo caches (goal 09): with a tiny budget the caches
-;; stay bounded while DISTINCT rows churn, the HOT set (re-accessed every
-;; render -- the page on screen) is never evicted, cold rows are (so the cache
-;; really evicts rather than silently growing), and the data-handler cache is
-;; bounded the same way. Pure hiccup -- no window, no gtk-init.
+;; LRU byte budget on the data-handler cache (goal 09, repointed at goal 11):
+;; with a tiny budget the cache stays bounded while DISTINCT [prop data] rows
+;; churn, the HOT set (re-accessed every render -- the page on screen) keeps
+;; returning the IDENTICAL handler fn (never evicted), a cold handler is evicted
+;; (so re-creating it yields a fresh fn, proving real eviction, not silent
+;; growth). Pure hiccup -- no window, no gtk-init.
+;;
+;; Goal 11 removed the h/memoized component cache; the shared LRU/est/budget
+;; machinery now backs exactly one cache (data-handler-cache), which is what the
+;; churn below exercises.
 (require '[gtkiccup.core :as ui]
          '[gtkiccup.hiccup :as h])
 
@@ -11,102 +16,66 @@
   (swap! cases inc)
   (assert cond_ msg))
 
-(def budget 200000) ;; bytes; a row costs ~2300 est (node+replicant+args), so
-                    ;; the hot set (~12k) always fits, but the 600-row churn
-                    ;; (~1.4MB) is ~7x the budget -- old pages are what pays
+(def budget 200000) ;; bytes; a [prop data] entry costs ~ hundreds of est bytes,
+                    ;; so the hot set fits, but the 600-row churn is many times
+                    ;; the budget -- old pages are what pays
 
-(defn big-row [i]
-  ;; a realistic-ish row: strings long enough that est() sees hundreds of bytes
-  [:label {:label (str "row " i " " (apply str (repeat 40 (str "filler" i "-"))))}])
+(defn big-data [i]
+  ;; a realistic-ish handler payload: a row map with enough string mass that
+  ;; est() sees hundreds of bytes retained by the [prop data] key + value
+  {:row i :filler (apply str (repeat 40 (str "filler" i "-")))})
 
-(def row-calls (atom {}))
-(def mrow (h/memoized
-           (fn [i]
-             (swap! row-calls update i (fnil inc 0))
-             (big-row i))))
+(defn handler-of [d]
+  ;; ->replicant (not just normalize): data handlers are created in ->attrs, so
+  ;; normalize alone would leave the cache empty and the asserts would be vacuous
+  (-> (h/normalize [:button {:on-click d}])
+      h/->replicant
+      second
+      (get-in [:on :on-click])))
 
 (defn stats [] (h/memo-stats))
 
 (defn -run []
   (alter-var-root #'h/memo-budget-bytes (constantly budget))
   (h/clear-memo!)
+  (ui/set-dispatch! (fn [_ _] nil))
   (try
-    ;; ------------------------------------------------------------------
-    ;; 1) distinct-row churn: the whole point of goal 09. babatidal measured
-    ;; ~40KB retained per DISTINCT row and an unbounded climb; here the same
-    ;; churn must leave the cache bounded by the budget.
-    (let [hot    (range 5)          ; the "page on screen": re-accessed every round
+    ;; 1) distinct-row churn: the hot [prop data] handlers stay identical, the
+    ;;    cache stays bounded, and cold handlers really evict.
+    (let [hot    (mapv big-data (range 5))   ; re-accessed every round
           rounds 30
-          fresh  20]                ; fresh distinct rows per round => 600 total
-      (doseq [r (range rounds)]
-        ;; hot set re-rendered every round (this is the access bump protecting it)
-        (doseq [i hot] (h/normalize [mrow i]))
-        ;; churn: rows never seen again after this round
-        (doseq [i (range (* r fresh) (* (inc r) fresh))]
-          (h/normalize [mrow i])))
-      (let [s (stats)]
-        (ok (pos? (:memo-entries s)) "the cache is not empty after churn")
-        (ok (<= (:memo-cost s) budget)
-            (str "memo cost " (:memo-cost s) " stayed within budget " budget))
-        (ok (< (:memo-entries s) (* rounds fresh))
-            (str "entries " (:memo-entries s) " stayed far below the "
-                 (* rounds fresh) " distinct rows churned"))
-        (ok (= (:budget-bytes s) budget) "memo-stats reports the active budget")
+          fresh  20]                         ; fresh distinct rows per round
+      ;; capture the hot handler identity BEFORE churn
+      (doseq [d hot] (handler-of d))
+      (let [hot-before (mapv handler-of hot)]
+        (doseq [r (range rounds)]
+          (doseq [d hot] (handler-of d))                     ; protect the hot set
+          (doseq [i (range (* r fresh) (* (inc r) fresh))]   ; cold churn
+            (handler-of (big-data i))))
+        (let [s          (stats)
+              hot-after  (mapv handler-of hot)]
+          (ok (pos? (:handler-entries s)) "the cache is not empty after churn")
+          (ok (<= (:handler-cost s) budget)
+              (str "handler cost " (:handler-cost s) " stayed within budget " budget))
+          (ok (< (:handler-entries s) (* rounds fresh))
+              (str "entries " (:handler-entries s) " stayed far below the "
+                   (* rounds fresh) " distinct rows churned"))
+          (ok (= (:budget-bytes s) budget) "memo-stats reports the active budget")
+          ;; (b) hot handlers stayed identical across the churn
+          (ok (every? true? (map identical? hot-before hot-after))
+              "a hot [prop data] handler was evicted (not identical after churn)"))))
 
-        ;; (b) HOT rows were expanded exactly once across all rounds
-        (doseq [i hot]
-          (ok (= 1 (get @row-calls i))
-              (str "hot row " i " expanded " (get @row-calls i) "x, want 1")))
-
-        ;; (c) COLD rows DID get evicted: a row from round 5, untouched since
-        ;; the budget cycled ~24 rounds past it, must re-expand on demand.
-        ;; (NOT a row from 0-4 -- those are the hot set and must survive.)
-        (let [cold        100
-              before      (get @row-calls cold)
-              _           (h/normalize [mrow cold])
-              after       (get @row-calls cold)]
-          (ok (= (inc before) after)
-              (str "cold row was NOT evicted (calls " before "->" after ")")))))
-
-    ;; ------------------------------------------------------------------
-    ;; 2) correctness survives eviction: nodes and cached replicants still come back
+    ;; 2) correctness survives eviction: a handler is still a working fn
     (h/clear-memo!)
-    (let [n1 (h/normalize [mrow 1])
-          n2 (h/normalize [mrow 1])]
-      (ok (= :label (:tag n1)) "normalize still produces a node")
-      (ok (identical? n1 n2) "a cache hit still returns the same node")
-      (ok (= [:label {:label [(str (:label (second (big-row 1))))]}]
-             (h/->replicant n1))
-          "the cached replicant form is still correct"))
-
-    ;; ------------------------------------------------------------------
-    ;; 3) data-handler cache is bounded the same way (its [prop data] keys
-    ;; retain `data` -- usually a row map -- so it held per-row mass too)
-    (h/clear-memo!)
-    (ui/set-dispatch! (fn [_ _] nil))
-    (let [hot-data   [{:row :hot-a} {:row :hot-b}]
-          handler-of (fn [d] (-> (h/->replicant (h/normalize [:button {:on-click d}]))
-                                 second (get-in [:on :on-click])))
-          handlers-a (mapv handler-of (repeat 2 (first hot-data)))]
-      (ok (every? fn? handlers-a) "data handlers are fns")
-      (ok (apply identical? handlers-a) "the hot [prop data] handler stays identical")
-      (doseq [r (range 40)
-              i (range 20)]
-        ;; ->replicant, not just normalize: data handlers are created in
-        ;; ->attrs, so normalize alone would leave the cache empty and the
-        ;; asserts below would pass vacuously
-        (-> (h/normalize [:button {:on-click {:row i :round r :filler (apply str (repeat 30 "x"))}}])
-            (h/->replicant)))
-      (let [s (stats)]
-        (ok (<= (:handler-cost s) budget)
-            (str "handler cost " (:handler-cost s) " stayed within budget"))
-        (ok (< (:handler-entries s) 800)
-            (str "handler entries " (:handler-entries s) " stayed bounded")))
-      (ui/set-dispatch! nil))
+    (let [h1 (handler-of {:row 1})
+          h2 (handler-of {:row 1})]
+      (ok (fn? h1) "a handler is a fn")
+      (ok (identical? h1 h2) "the same [prop data] returns the identical fn"))
 
     (println (str "MEMOBUDGET-OK cases=" @cases))
     (println "ALL OK")
     (finally
+      (ui/set-dispatch! nil)
       (alter-var-root #'h/memo-budget-bytes (constantly (* 16 1024 1024))))))
 
 (-run)

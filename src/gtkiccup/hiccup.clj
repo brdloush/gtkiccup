@@ -15,6 +15,7 @@
    prop value travels boxed in a one-element vector: always truthy, compared by
    value, and unboxed by the renderer. Replicant never looks inside."
   (:require [clojure.string]
+            [gtkiccup.alias :as ga]
             [gtkiccup.widgets :as w]))
 
 (defonce ^{:doc "The fn non-fn handlers are dispatched to, set with
@@ -26,44 +27,35 @@
   #{:replicant/on-mount :replicant/on-update :replicant/on-unmount :replicant/on-render})
 
 ;; ---------------------------------------------------------------------------
-;; Component memoization
+;; Late-bound aliases + the data-handler cache
 ;; ---------------------------------------------------------------------------
 ;;
-;; A render re-runs every function component in the tree, even when nothing it
-;; depends on has changed. `memoized` opts a view fn out of that: `normalize`
-;; caches the expansion of [fn args...] and reuses it while the args are `=`.
-;; The cached value carries its own `->replicant` output under
-;; :replicant/cached, so a hit skips both the component call and the
-;; translation of its subtree.
+;; Replicant diffs by walking the tree and short-circuiting a whole subtree when
+;; a child is `identical?` to what is already mounted. A component is therefore
+;; "free" while its rendered form is `=` across renders -- no per-component
+;; memo table needed. Two mechanisms give that:
 ;;
-;; Two rules make this safe:
+;;   - late-bound ALIASES (see `gtkiccup.alias`): a registered qualified-keyword
+;;     tag passes through `normalize` as raw data, and `reconcile` re-runs the
+;;     body only when the attrs change. This replaces the `h/memoized` ritual.
+;;   - the DATA-HANDLER cache below: an event handler written as data
+;;     ({:on-click [:thing/do 3]}) resolves to a cached fn keyed on [prop data],
+;;     so two renders of an unchanged row produce the IDENTICAL fn object and the
+;;     row stays `=`. The fn resolves @dispatch only at click time.
 ;;
-;;   - A memoized view fn must be PURE in its args: same args -> same tree. It
-;;     must not deref application state, read time, or use rand. If it does,
-;;     the cache serves a stale tree forever -- either pass everything it
-;;     renders through args, or don't memoize it.
-;;   - Expansions containing lifecycle hooks (any :replicant/on-* prop anywhere
-;;     in the subtree) are never cached: `hook` closes over the render-scoped
-;;     *defer-hook*, so a cached wrapper would defer to a dead render.
+;; The caches are LRU with a shared byte budget so a large live page (thousands
+;; of distinct [prop data] rows, each ~40KB of retained value + key) cannot
+;; overrun the heap; the on-screen hot set is re-accessed every render and ages
+;; out last.
 
 (declare ->replicant)
 
-(defonce ^:private memo-cache
-  ;; LRU state, not a plain key->node map: {:entries {k {:v node :cost bytes
-  ;; :last clock}} :cost total-estimated-bytes :clock monotonic-access-counter}.
-  ;; `:last` is bumped on every HIT, so the rows of the page currently on screen
-  ;; are the last to be evicted and goal 07's per-render memo wins survive;
-  ;; unaccessed entries (rows of pages the user navigated away from) are what
-  ;; the byte budget pays. babatidal's goal 09 measured ~40KB of retained JVM
-  ;; heap per DISTINCT row, and a plain count cap of 4000 was therefore worth
-  ;; ~160MB -- more than the app's whole heap -- so the count cap became a
-  ;; secondary bound under `memo-budget-bytes`.
-  (atom {:entries {} :cost 0 :clock 0}))
-
 (defonce ^:private data-handler-cache
-  ;; Same LRU shape as `memo-cache`. Its `[prop data]` KEYS retain the caller's
-  ;; `data` (usually a whole row map), so this cache held per-distinct-row mass
-  ;; too; the same byte budget bounds it.
+  ;; LRU state, not a plain key->value map: {:entries {k {:v val :cost bytes
+  ;; :last clock}} :cost total-estimated-bytes :clock monotonic-access-counter}.
+  ;; Its `[prop data]` KEYS retain the caller's `data` (usually a whole row
+  ;; map), so the same byte budget bounds it. `:last` is bumped on every HIT,
+  ;; so the rows of the page currently on screen are the last to be evicted.
   (atom {:entries {} :cost 0 :clock 0}))
 
 (def memo-cache-max
@@ -72,39 +64,21 @@
    micro-entries from making the LRU list itself expensive. Eviction past
    either bound is LRU (oldest `:last` first), never a wholesale reset: a
    reset would re-expand every hot row on the next render tick, which is
-   exactly the scroll-jank goal 07 removed."
+   exactly the scroll-jank this cache exists to avoid."
   4000)
 
-(defn memoized
-  "Mark a pure view fn as cacheable by `normalize`.
-
-   (def row (h/memoized row-fn))
-   [:vbox {} [row track playing-id]]
-
-   See the note at the top of this namespace: the fn must render only from its
-   args. Reuse one marked fn (a def), the cache keys on its identity."
-  [f]
-  (with-meta f {:gtkiccup/memo true}))
-
 (defn clear-memo!
-  "Drop every cached component expansion (and the cached data handlers).
-   Useful in tests and after re-defining components in a REPL."
+  "Drop every cached data handler. Useful in tests and after re-defining the
+   dispatch fn in a REPL."
   []
-  (reset! memo-cache {:entries {} :cost 0 :clock 0})
   (reset! data-handler-cache {:entries {} :cost 0 :clock 0}))
 
-(defn- node-has-hooks?
-  "Any :replicant/on-* prop anywhere in a normalized subtree."
-  [{:keys [props children]}]
-  (boolean (or (some hook-keys (keys props))
-               (some node-has-hooks? children))))
-
 (def memo-budget-bytes
-  "Estimated-bytes budget PER cache (memo-cache, data-handler-cache each get
-   this). Default 16MB: a realistic live page is a few hundred rows at ~40KB
-   of retained subtree each, which stays fully resident, while the rows of
-   every page the user navigated away from are what the LRU drops. Override
-   with the environment (KB) for probes and tests."
+  "Estimated-bytes budget for the data-handler cache. Default 16MB: a realistic
+   live page is a few hundred rows at ~40KB of retained value + key each, which
+   stays fully resident, while the rows of every page the user navigated away
+   from are what the LRU drops. Override with the environment (KB) for probes
+   and tests."
   (long
    (or (some-> (System/getenv "GTKICCUP_MEMO_BUDGET_KB") Integer/parseInt)
        (* 16 1024 1024))))
@@ -178,36 +152,13 @@
                   budget))))))
 
 (defn memo-stats
-  "Diagnostics for probes and tests: entry count and estimated bytes per
-   cache, plus the active budget. (The caches are private LRU state; this is
-   the read window.)"
+  "Diagnostics for probes and tests: entry count and estimated bytes for the
+   data-handler cache, plus the active budget. (The cache is private LRU state;
+   this is the read window.)"
   []
-  {:memo-entries    (count (:entries @memo-cache))
-   :memo-cost       (:cost @memo-cache)
-   :handler-entries (count (:entries @data-handler-cache))
+  {:handler-entries (count (:entries @data-handler-cache))
    :handler-cost    (:cost @data-handler-cache)
    :budget-bytes    memo-budget-bytes})
-
-(defn- memo-lookup [tag more]
-  (when (:gtkiccup/memo (meta tag))
-    (lru-get memo-cache [tag (vec more)])))
-
-(defn- memo-store! [tag more node]
-  "Return the node to keep for this expansion: the cached one when tag is
-   `memoized` and the subtree is hook-free, otherwise `node` unchanged.
-
-   The cached value is the node plus its prebuilt replicant, and the ENTRY --
-   like the key -- is keyed by the row's own args, so it is what the byte
-   budget bounds: cost = estimate of the cached value + estimate of the args
-   (the key vector retains them)."
-  (if (and (:gtkiccup/memo (meta tag))
-           (not (node-has-hooks? node)))
-    (let [cached (assoc node :replicant/cached (->replicant node))]
-      (lru-put memo-cache [tag (vec more)] cached
-               (+ (est cached) (est (vec more)))
-               memo-budget-bytes)
-      cached)
-    node))
 
 (defn- text-like?
   "A child that reads as content rather than as a widget."
@@ -269,9 +220,17 @@
    Runs over the whole tree before `reconcile` touches a single widget, so a
    malformed view is rejected without half-mutating the window.
 
-   Expansions of components marked with `memoized` are cached on [fn args];
-   a hit returns the cached subtree (carrying its prebuilt :replicant/cached
-   form) without calling the fn. See the memoization note above."
+   A qualified-keyword tag registered with `gtkiccup.alias/register-alias!` is
+   NOT walked: it passes through as data `{:tag kw :props props :children kids}`
+   with its children kept RAW -- they are inputs to the late-bound expansion,
+   which `reconcile` runs only when the attrs change. An unregistered qualified
+   keyword keeps erroring as an unknown widget (typo protection at emit time).
+
+   Expansions of function components are re-run every render: the caching that
+   once lived here (`h/memoized`) is gone -- unchanged subtrees short-circuit on
+   `identical?` at the Replicant level, and the row/card components are now
+   late-bound aliases (see `gtkiccup.alias`). See the note at the top of this
+   namespace."
   ([form] (normalize form nil))
   ([form parent]
    (cond
@@ -280,44 +239,51 @@
      :else
      (let [[tag & more] form]
        (if (fn? tag)
-         (or (memo-lookup tag more)
-             (memo-store! tag more (normalize (apply tag more) parent)))
-         (let [spec (or (@w/widgets (base-tag tag))
-                        (hiccup-error!
-                         (str "unknown widget " (pr-str tag)
-                              "\n  known widgets: "
-                              (clojure.string/join " " (sort (map str (keys @w/widgets)))))
-                         {:tag tag :known (set (keys @w/widgets))}))
-               props (if (map? (first more)) (first more) {})
-               kids  (->> (if (map? (first more)) (rest more) more)
-                          spliced
-                          (remove nil?))
-               _     (run! #(when-not (or (vector? %) (text-like? %))
-                              (bad-child! % tag))
-                           kids)
-               texts (remove vector? kids)
-               nodes (filterv vector? kids)
-               tprop (:text-prop spec)]
-           (when (and (seq texts) (nil? tprop))
-             (hiccup-error!
-              (str tag " has no text of its own: " (pr-str (vec texts))
-                   "\n  put the text in a child, e.g. [" tag " {} [:label "
-                   (pr-str (str (first texts))) "]]")
-              {:tag tag :texts (vec texts)}))
-           (when (and (seq texts) (contains? props tprop))
-             (hiccup-error!
-              (str tag " was given both a " tprop " prop and text children"
-                   "\n  drop one: [" tag " {" tprop " ...}] or [" tag " \"...\"]")
-              {:tag tag :prop tprop :texts (vec texts)}))
-           (when (and (seq nodes) (nil? (:append spec)))
-             (hiccup-error!
-              (str tag " cannot contain child widgets"
-                   "\n  wrap them in a :vbox or :hbox instead")
-              {:tag tag :children (count nodes)}))
-           {:tag tag
-            :props (cond-> props
-                     (seq texts) (assoc tprop (apply str texts)))
-            :children (mapv #(normalize % tag) nodes)}))))))
+         (normalize (apply tag more) parent)
+         (if (ga/registered? tag)
+           ;; a registered alias: a cache key, not a widget. props are the
+           ;; expansion's plain-data input; children stay raw for the fn.
+           (let [props (if (map? (first more)) (first more) {})
+                 kids  (->> (if (map? (first more)) (rest more) more)
+                            spliced
+                            (remove nil?))]
+             {:tag tag :props props :children (vec kids)})
+           (let [spec (or (@w/widgets (base-tag tag))
+                          (hiccup-error!
+                           (str "unknown widget " (pr-str tag)
+                                "\n  known widgets: "
+                                (clojure.string/join " " (sort (map str (keys @w/widgets)))))
+                           {:tag tag :known (set (keys @w/widgets))}))
+                 props (if (map? (first more)) (first more) {})
+                 kids  (->> (if (map? (first more)) (rest more) more)
+                            spliced
+                            (remove nil?))
+                 _     (run! #(when-not (or (vector? %) (text-like? %))
+                                (bad-child! % tag))
+                             kids)
+                 texts (remove vector? kids)
+                 nodes (filterv vector? kids)
+                 tprop (:text-prop spec)]
+             (when (and (seq texts) (nil? tprop))
+               (hiccup-error!
+                (str tag " has no text of its own: " (pr-str (vec texts))
+                     "\n  put the text in a child, e.g. [" tag " {} [:label "
+                     (pr-str (str (first texts))) "]]")
+                {:tag tag :texts (vec texts)}))
+             (when (and (seq texts) (contains? props tprop))
+               (hiccup-error!
+                (str tag " was given both a " tprop " prop and text children"
+                     "\n  drop one: [" tag " {" tprop " ...}] or [" tag " \"...\"]")
+                {:tag tag :prop tprop :texts (vec texts)}))
+             (when (and (seq nodes) (nil? (:append spec)))
+               (hiccup-error!
+                (str tag " cannot contain child widgets"
+                     "\n  wrap them in a :vbox or :hbox instead")
+                {:tag tag :children (count nodes)}))
+             {:tag tag
+              :props (cond-> props
+                       (seq texts) (assoc tprop (apply str texts)))
+              :children (mapv #(normalize % tag) nodes)})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; -> Replicant hiccup
@@ -332,7 +298,7 @@
    cached handler invoked after set-dispatch! nil would call a nil fn -- the
    pre-memoization code captured the fn instead. Only tests reset dispatch.)
 
-   LRU-bounded like `memo-store!`: the [prop data] KEY retains `data` (often a
+   LRU-bounded like any cache here: the [prop data] KEY retains `data` (often a
    whole row map), so the entry's cost counts both."
   [prop data]
   (if-let [cached (lru-get data-handler-cache [prop data])]
@@ -398,11 +364,51 @@
 (defn ->replicant
   "A normalized node -> Replicant hiccup.
 
-   Nodes from `normalize` whose expansion was cached by `memoized` carry that
-   form prebuilt under :replicant/cached, and it is reused as-is -- the
-   widget/signal tables are static once loaded, so a cached form stays valid."
+   A registered-alias node passes through VERBATIM as `[:tag props children...]`:
+   its props are the expansion's plain-data input (not boxed, not signal-
+   converted -- the registered fn consumes them raw) and its children stay
+   unexpanded, so Replicant sees a qualified-keyword node and defers the whole
+   subtree to late-bound expansion at reconcile time.
+
+   (The `:replicant/cached` checks below are vestigial: they were the
+   `h/memoized` prebuilt-replicant fast path, now unused -- no node carries that
+   key since goal 11 removed the component cache. They read as nil and fall
+   through to the normal translation.)"
   ([node] (or (:replicant/cached node) (->replicant node @w/signals)))
   ([{:keys [tag props children]} signals]
-   (into [tag (->attrs props signals)]
-         (map #(or (:replicant/cached %) (->replicant % signals)))
-         children)))
+   (if (ga/registered? tag)
+     (into [tag props] children)
+     (into [tag (->attrs props signals)]
+           (map #(or (:replicant/cached %) (->replicant % signals)))
+           children))))
+
+(defn- expand-alias
+  "The wrapper Replicant calls for a registered alias when its attrs changed.
+   Runs the user fn, then hands the result through the SAME prop pipeline a
+   top-level node gets -- `normalize` + `->replicant` -- but at EXPANSION time,
+   inside reconcile, under the renderer's current `*defer-hook*` binding (so a
+   hook-bearing expansion defers to the live render, and the old
+   `node-has-hooks?` refusal is no longer needed). Counts the expansion so
+   `alias-stats` sees it; a non-hiccup result throws and Replicant routes it to
+   :on-alias-exception rather than corrupting the tree."
+  [k f attrs children]
+  (swap! ga/stats update k (fn [m] (update (or m {:expansions 0}) :expansions inc)))
+  (let [r (f attrs children)]
+    (cond
+      (string? r) r
+      (vector? r) (-> r normalize ->replicant)
+      :else (throw (ex-info (str "alias " (pr-str k)
+                                 " expansion returned a non-hiccup result: " (pr-str r))
+                            {:alias k :result r})))))
+
+(defn aliases-for-render
+  "The `{keyword fn}` map Replicant's `:aliases` option wants, built fresh each
+   render from the raw `gtkiccup.alias/aliases` registry, each fn wrapped in
+   `expand-alias`. Replicant looks aliases up BY KEYWORD (never by fn identity),
+   so allocating these closures per render is invisible to `unchanged?`: the
+   alias NODE keys on the keyword, so a re-register or a per-render closure does
+   not churn the cache."
+  []
+  (into {}
+        (map (fn [[k f]] [k (fn [attrs children] (expand-alias k f attrs children))]))
+        @ga/aliases))
