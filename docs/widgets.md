@@ -249,6 +249,13 @@ still apply -- a hook inside an alias body fires exactly once, on mount. See
 `test/alias_test.clj` for the behaviour. This replaces the hand-written
 `gtkiccup.hiccup/memoized`, removed in goal 11.
 
+Working, test-covered references to copy live in `examples/`: `todo.clj`
+(`:todo/row` -- the shape above at its smallest), `monitor.clj` (`:monitor/metric`,
+`:monitor/process`), `weather.clj` (`:weather/hour`, `:weather/day`,
+`:weather/detail`), and `deck.clj` (`:deck/slide`, `:deck/bullet`). The deck is the
+clearest case for the cache: its chrome clock re-renders the page once a second while
+the slide maps stay `=`-equal, so a tick re-expands nothing.
+
 ## Handlers as data
 
 A handler can be a fn, or data that is sent to one dispatch fn:
@@ -264,6 +271,14 @@ A handler can be a fn, or data that is sent to one dispatch fn:
 
 Data compares equal across renders and can be logged, tested and replayed. A
 data handler with no dispatch fn set is refused when the view renders.
+
+The canonical form is the positional `[action & args]` vector -- `[:todo/toggle 3]`,
+`[:monitor/toast-pid name pid]`, `[:weather/units]`, `[:deck/key]` -- each routed by a
+single `ui/set-dispatch!` fn in the matching `examples/` app. The value a signal
+*produces* (a `:change`'s text, a `:toggle`'s bool, an `:on-key`'s event map) arrives in
+`:gtkiccup/args`, since GTK has no JS event object to interpolate placeholders from. A
+handler that must return a value still can: the deck's `:on-key` dispatch returns truthy
+only when it consumed the key, so unknown keys fall through to GTK.
 
 ## Classes in the tag
 

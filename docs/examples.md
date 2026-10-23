@@ -6,6 +6,14 @@ screenshot, at the display's full pixel density, via `bb shot` -- so on a 2x
 screen the PNG is twice the window's size. That is why the images here have a
 fixed display width.
 
+All five are built the same way: one reactive atom of state, the UI as a pure
+function of it, repeated rows registered as **late-bound aliases** and every event
+emitted as a **data handler** dispatched by a single `ui/set-dispatch!` fn.
+`counter` and `todo` show that pattern at its smallest; the three showcase apps put
+it to work on real screens. See
+[Components as aliases](widgets.md#components-as-aliases) and
+[Handlers as data](widgets.md#handlers-as-data).
+
 ## Deck
 
 `bb deck examples/talk.md` -- a markdown presenter, driven entirely by the
@@ -82,7 +90,7 @@ sample, so its figures are this machine's, taken at this moment -- the
 self-highlighting row and the top-process list below it are what the shot is
 for, not any particular number.
 
-The UI is one pure function of one map. `examples/monitor.clj` is 154 lines,
+The UI is one pure function of one map. `examples/monitor.clj` is 178 lines,
 `examples/sysinfo.clj` (all the `/proc` reading) is 215, and the libadwaita
 bindings are 642. Core did not have to change much to allow it -- see
 [Extension points](internals.md#extension-points).
