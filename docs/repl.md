@@ -16,7 +16,7 @@ the vars, or just re-render on a timer. The rest of this section is what happens
 *without* them, which is worth knowing because it explains what those helpers
 are actually doing.
 
-You do *not* need `#'home` for this. A plain call like `(home state)` resolves
+You do *not* need `#'home` for this. A plain call like `(home @state)` resolves
 through the var at call time in babashka, exactly as on the JVM, so a redef is
 picked up on the next render. All that is missing is the render.
 
@@ -30,14 +30,16 @@ now, without touching the UI".
 Structure the app so the view is a plain fn of state:
 
 ```clojure
-(defn home [state]
+(defn home [{:keys [draft items]}]
   [:vbox {:spacing 10 :margin 16}
-   [:label "items: " (count (:items @state))]
+   [:label "items: " (count items)]
    ...])
 
 (defn app []
   (let [state (r/atom {:draft "" :items []})]
-    (fn [] (home state))))
+    ;; the one deref, at the page edge: `home` and everything under it get plain
+    ;; data, never the atom. See docs/state.md for the contract and why.
+    (fn [] (home @state))))
 ```
 
 `run` blocks, so start it on its own thread and keep the handle:
@@ -176,8 +178,8 @@ polling and no wasted renders.
 re-run it, or declare views with `defview`, which arms itself:
 
 ```clojure
-(dev/defview home [state]
-  [:vbox {} [:label "items: " (count (:items @state))]])
+(dev/defview home [{:keys [items]}]
+  [:vbox {} [:label "items: " (count items)]])
 ```
 
 The ordering works out: a redef fires the watch armed by the previous definition,

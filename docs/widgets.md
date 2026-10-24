@@ -254,7 +254,10 @@ Working, test-covered references to copy live in `examples/`: `todo.clj`
 `:monitor/process`), `weather.clj` (`:weather/hour`, `:weather/day`,
 `:weather/detail`), and `deck.clj` (`:deck/slide`, `:deck/bullet`). The deck is the
 clearest case for the cache: its chrome clock re-renders the page once a second while
-the slide maps stay `=`-equal, so a tick re-expands nothing.
+the slide maps stay `=`-equal, so a tick re-expands nothing. For the full
+"deref once at the page, pass narrow sub-states down, bodies pure over their attrs"
+contract -- including the near-static-config exception -- see
+[Working with a page](state.md).
 
 ## Handlers as data
 

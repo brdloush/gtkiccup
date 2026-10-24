@@ -151,6 +151,7 @@ bb tasks      # everything else
 | [Examples](docs/examples.md) | the example apps, what each one proves, and what they cost to run |
 | [Widgets and props](docs/widgets.md) | every tag and prop, keyboard input, text children, keys, lifecycle hooks, data handlers, libadwaita |
 | [REPL workflow and dev helpers](docs/repl.md) | reshaping a running window, threads, gotchas, auto-refresh and file watching |
+| [Working with a page](docs/state.md) | where the atom is deref-ed, pure children, the near-static exception |
 | [Desktop integration](docs/desktop-integration.md) | app id, name and icon, so the window is not just "bb" |
 | [How it works](docs/internals.md) | the namespaces, the renderer, the main loop, error recovery, extension points |
 | [API](docs/api.md) | every public function |

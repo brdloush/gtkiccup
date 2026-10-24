@@ -139,12 +139,16 @@
     (format "%d:%02d" (quot secs 60) (mod secs 60))))
 
 (defn chrome
-  "Slide counter and elapsed time. A revealer so it can fade out."
-  [{:keys [index slides chrome? started-at]}]
+  "Slide counter and elapsed time. A revealer so it can fade out.
+   `now-ms` is the clock reading, passed in by the page (which samples
+   `System/currentTimeMillis` once per render). Taking it as an argument keeps
+   `chrome` a pure function of its arguments -- the whole point of the page/child
+   split: nothing under the page reads a clock or the atom itself."
+  [{:keys [index slides chrome? started-at]} now-ms]
   [:revealer {:revealed (boolean chrome?) :duration 200}
    [:hbox {:spacing 16 :class "chrome" :halign :center}
     [:label {:class "counter" :label (str (inc index) " / " (max 1 (count slides)))}]
-    [:label {:label (elapsed (- (System/currentTimeMillis) started-at))}]
+    [:label {:label (elapsed (- now-ms started-at))}]
     [:label {:label "← →  ·  F5 fullscreen  ·  Esc quit"}]]])
 
 (defn empty-deck [path]
@@ -152,21 +156,28 @@
                  :title "Nothing to present"
                  :description (str path " has no slides yet. Separate them with ---")}])
 
-(defn home [state]
-  (let [{:keys [slides index] :as s} @state]
+(defn home [s]
+  ;; `s` is the plain state map the page produced (see `app`), not the atom. The
+  ;; clock is sampled here -- at the edge -- and handed to `chrome`, which stays
+  ;; pure over its arguments.
+  (let [{:keys [slides index]} s
+        now (System/currentTimeMillis)]
     [:bin {:on-key [:deck/key]}
      [:vbox {:spacing 0}
       (if (seq slides)
         (into [:carousel {:page index :animate true :vexpand true}]
               (map (fn [sl] [:deck/slide sl]) slides))
         [:bin {:vexpand true} (empty-deck (:path s))])
-      (chrome s)]]))
+      (chrome s now)]]))
 
 ;; ---------------------------------------------------------------------------
 ;; run
 ;; ---------------------------------------------------------------------------
 
-(defn app [] (fn [] (home state)))
+(defn app []
+  ;; the single deref, at the page edge: read the atom once, hand the map to the
+  ;; pure `home`. The clock is sampled inside `home` (also the edge) for `chrome`.
+  (fn [] (home @state)))
 
 (defn tick!
   "Nudges a re-render once a second, only so the elapsed clock moves."

@@ -140,12 +140,16 @@
                    [:monitor/process {:i i :name name :pid pid :label label :value value}])
                  procs)]])
 
-(defn home [state]
+(defn home [vm]
+  ;; `home` is the page: the host re-runs it on every change, so it is the one
+  ;; place allowed to look at live state. `app` (below) deref-s the atom once and
+  ;; hands the resulting map here, so `home` and everything under it
+  ;; (`dashboard`, the alias rows) are pure functions of their arguments.
   [:toast-overlay {}
    [:toolbar-view {}
     [:header-bar {:slot :top}
      [:window-title {:title "System Monitor"
-                     :subtitle (if-let [s @state]
+                     :subtitle (if-let [s vm]
                                  (str (:host s) "  ·  babashka + GTK4")
                                  "starting")}]
      [:icon-button {:slot :end
@@ -153,7 +157,7 @@
                     :tooltip "Sample now"
                     :on-click [:monitor/sample]}]]
     [:scroll {}
-     (if-let [s @state] (dashboard s) (loading))]]])
+     (if-let [s vm] (dashboard s) (loading))]]])
 
 ;; ---------------------------------------------------------------------------
 ;; run
@@ -162,7 +166,9 @@
 (defn app []
   ;; one synchronous reading so the first frame already has numbers
   (reset! state (sys/view-model nil (sys/sample)))
-  (fn [] (home state)))
+  ;; the single deref: the atom is read once here, at the page edge, and the
+  ;; resulting map is what `home` and its children see. No atom is passed down.
+  (fn [] (home @state)))
 
 (defn -main [& _]
   (let [stop (start-polling! state)]

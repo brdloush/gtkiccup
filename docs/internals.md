@@ -7,13 +7,13 @@ running app) and `adw` (libadwaita, which core does not know exists).
 
 | File | Lines | Job |
 | --- | --- | --- |
-| `src/gtkiccup/ffi.clj` | 386 | `defcfn` bindings for the GTK4/GObject symbols the library uses |
+| `src/gtkiccup/ffi.clj` | 421 | `defcfn` bindings for the GTK4/GObject symbols the library uses |
 | `src/gtkiccup/ratom.clj` | 25 | reactive atom: a normal atom whose watch marks the UI dirty |
-| `src/gtkiccup/widgets.clj` | 649 | the tag and signal tables, and the props every widget takes |
-| `src/gtkiccup/hiccup.clj` | 203 | validation, text children, splicing, and the translation into Replicant's hiccup |
-| `src/gtkiccup/renderer.clj` | 383 | Replicant's `IRender` protocol, for GTK |
-| `src/gtkiccup/core.clj` | 327 | the window, the main loop, the GTK thread, the public API |
-| `src/gtkiccup/refs.clj` | 68 | named widget references, kept live by the renderer |
+| `src/gtkiccup/widgets.clj` | 694 | the tag and signal tables, and the props every widget takes |
+| `src/gtkiccup/hiccup.clj` | 414 | validation, text children, splicing, and the translation into Replicant's hiccup |
+| `src/gtkiccup/renderer.clj` | 399 | Replicant's `IRender` protocol, for GTK |
+| `src/gtkiccup/core.clj` | 328 | the window, the main loop, the GTK thread, the public API |
+| `src/gtkiccup/refs.clj` | 139 | named widget references, kept live by the renderer |
 | `src/gtkiccup/dev.clj` | 260 | dev-only: var watches, auto-refresh, file watching, screenshots |
 | `src/gtkiccup/adw.clj` | 642 | optional: libadwaita bindings and 22 tags, 20 of them new -- its `:bin` and `:clamp` replace the core tags of the same name, for 36 tags in total. Core does not know it exists |
 

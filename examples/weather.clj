@@ -213,35 +213,34 @@
      [:label {:class "h-pop" :halign :center
               :label (if (and precip (pos? precip)) (str precip "%") " ")}]]))
 
-(defn hero [{:keys [place current today hourly sky-class]}]
-  ;; the page resolves (t :ui/now) once and hands it to the now-cell as an attr,
-  ;; so the localized string lives in the cache key instead of being read from
-  ;; the language binding inside the alias (where a language switch could not
-  ;; re-expand it). Every other cell ignores it and stays cached.
-  (let [now-label (t :ui/now)]
-    [:bin {:class ["hero" sky-class]}
-     [:vbox {:spacing 2 :margin 18}
-      [:label {:class "place" :halign :center
-               :label (str (:name place)
-                           (when (:country place) (str "  ·  " (:country place))))}]
-      [:label {:class "temp" :halign :center :label (:temp current)}]
-      [:hbox {:spacing 8 :halign :center}
-       [:icon {:icon (:icon current) :size 22}]
-       [:label {:class "condition" :label (:label current)}]]
-      [:label {:class "sub" :halign :center
-               :label (str (t :ui/feels-like) " " (:feels current)
-                           "   ·   " (t :ui/hi) " " (:hi today)
-                           "   " (t :ui/lo) " " (:lo today))}]
-      [:scroll {:h :automatic :v :never :hexpand true :margin 8 :class "hourly"}
-       (into [:hbox {:spacing 2 :halign :center}]
-             (map-indexed (fn [i {:keys [time temp-label precip icon]}]
-                            (let [now? (zero? i)]
-                              [:weather/hour {:now? now?
-                                              :label (if now? now-label time)
-                                              :temp-label temp-label
-                                              :precip precip
-                                              :icon icon}]))
-                          hourly))]]]))
+(defn hero [{:keys [place current today hourly sky-class]} {:keys [now feels-like hi lo]}]
+  ;; The now-label and the feels/hi/lo captions arrive pre-localized from the
+  ;; page; `hero` resolves no language itself. The hourly alias gets the now-string
+  ;; as a plain attr, putting it in the cache key -- a language switch (which
+  ;; re-runs the page) moves that one attr and re-expands only the now-cell.
+  [:bin {:class ["hero" sky-class]}
+   [:vbox {:spacing 2 :margin 18}
+    [:label {:class "place" :halign :center
+             :label (str (:name place)
+                         (when (:country place) (str "  ·  " (:country place))))}]
+    [:label {:class "temp" :halign :center :label (:temp current)}]
+    [:hbox {:spacing 8 :halign :center}
+     [:icon {:icon (:icon current) :size 22}]
+     [:label {:class "condition" :label (:label current)}]]
+    [:label {:class "sub" :halign :center
+             :label (str feels-like " " (:feels current)
+                         "   ·   " hi " " (:hi today)
+                         "   " lo " " (:lo today))}]
+    [:scroll {:h :automatic :v :never :hexpand true :margin 8 :class "hourly"}
+     (into [:hbox {:spacing 2 :halign :center}]
+           (map-indexed (fn [i {:keys [time temp-label precip icon]}]
+                          (let [now? (zero? i)]
+                            [:weather/hour {:now? now?
+                                            :label (if now? now time)
+                                            :temp-label temp-label
+                                            :precip precip
+                                            :icon icon}]))
+                        hourly))]]])
 
 (ga/register-alias! :weather/day
   {:purity :pure}
@@ -260,33 +259,60 @@
      [:icon {:slot :prefix :icon icon :size 18}]
      [:label {:slot :suffix :class "numeric" :valign :center :label value}]]))
 
-(defn dashboard [{:keys [daily details place] :as vm}]
-  ;; day and detail rows are emitted as ALIAS nodes (plain data); the page hands
-  ;; each value down as an attr so the expansions stay pure over their args.
-  [:vbox {:spacing 0}
-   (hero vm)
-   [:clamp {:max 620}
-    [:vbox {:spacing 14 :margin 14}
-     (into [:group {:title (t :ui/week)}] (map (fn [{:keys [day icon hi lo precip]}] [:weather/day {:day day :icon icon :hi hi :lo lo :precip precip}]) daily))
-     (into [:group {:title (t :ui/details)
-                    :description (str (:timezone place)
-                                      (when (:elevation place)
-                                        (format "  ·  %.0f m" (:elevation place))))}]
-           (map (fn [{:keys [title value icon]}] [:weather/detail {:title title :value value :icon icon}]) details))]]])
+(defn dashboard [vm lbl]
+  ;; day and detail rows are emitted as ALIAS nodes (plain data); each value is
+  ;; handed down as an attr so the expansions stay pure over their args. The two
+  ;; group titles are localized strings resolved by the page and passed in via
+  ;; `lbl` -- `dashboard` calls no `t`. `vm` and `lbl` are forwarded to `hero`.
+  (let [{:keys [daily details place]} vm]
+    [:vbox {:spacing 0}
+     (hero vm lbl)
+     [:clamp {:max 620}
+      [:vbox {:spacing 14 :margin 14}
+       (into [:group {:title (:week-title lbl)}]
+             (map (fn [{:keys [day icon hi lo precip]}]
+                    [:weather/day {:day day :icon icon :hi hi :lo lo :precip precip}])
+                  daily))
+       (into [:group {:title (:details-title lbl)
+                      :description (str (:timezone place)
+                                        (when (:elevation place)
+                                          (format "  ·  %.0f m" (:elevation place))))}]
+             (map (fn [{:keys [title value icon]}]
+                    [:weather/detail {:title title :value value :icon icon}])
+                  details))]]]))
 
-(defn loading []
+(defn loading [lbl]
+  ;; the strings come in from the page's `lbl`; nothing here calls `t`.
   [:status-page {:icon "weather-few-clouds-symbolic"
-                 :title (t :ui/loading)
-                 :description (t :ui/loading-sub)}])
+                 :title (:loading-title lbl)
+                 :description (:loading-sub lbl)}])
 
-(defn failed [err]
+(defn failed [err lbl]
+  ;; the title comes in from the page's `lbl`; only the raw error string is local.
   [:status-page {:icon "network-offline-symbolic"
-                 :title (t :ui/failed)
+                 :title (:failed-title lbl)
                  :description (str err)}])
 
-(defn home [state]
-  (let [{:keys [vm loading? error config]} @state
-        stale (om/stale-label (:fetched-at config) (System/currentTimeMillis))]
+(defn home [s]
+  ;; The page is the only function here that reads live state: the atom (deref-ed
+  ;; once in `app` and handed to `s`), the clock (for the stale banner) and the
+  ;; active language. It resolves EVERY localized string ONCE into `lbl` and
+  ;; threads that map down, so `dashboard`, `hero`, `loading`, `failed` and the
+  ;; alias bodies never call `t` themselves and stay pure over their arguments.
+  ;; A language switch re-runs the page, so the strings refresh even though the
+  ;; cached rows do not. This is the page/child contract: state and language are
+  ;; read at the edge, everything below is data in / hiccup out.
+  (let [{:keys [vm loading? error config]} s
+        stale (om/stale-label (:fetched-at config) (System/currentTimeMillis))
+        lbl {:now (t :ui/now)
+             :feels-like (t :ui/feels-like)
+             :hi (t :ui/hi)
+             :lo (t :ui/lo)
+             :week-title (t :ui/week)
+             :details-title (t :ui/details)
+             :loading-title (t :ui/loading)
+             :loading-sub (t :ui/loading-sub)
+             :failed-title (t :ui/failed)}]
     [:toast-overlay {}
      [:toolbar-view {}
       [:header-bar {:slot :top}
@@ -321,10 +347,10 @@
        ;; dashboard collapses to a 58px sliver
        [:scroll {:vexpand true :hexpand true}
         (cond
-          vm       (dashboard vm)
-          loading? (loading)
-          error    (failed error)
-          :else    (loading))]]]]))
+          vm       (dashboard vm lbl)
+          loading? (loading lbl)
+          error    (failed error lbl)
+          :else    (loading lbl))]]]]))
 
 ;; ---------------------------------------------------------------------------
 ;; run
@@ -332,7 +358,9 @@
 
 (defn app []
   (show-cached!)
-  (fn [] (home state)))
+  ;; the single deref, at the page edge: `home` and everything under it get the
+  ;; plain map, never the atom.
+  (fn [] (home @state)))
 
 (defn -main [& _]
   (let [stop (start-polling!)]

@@ -39,6 +39,7 @@
 ;; A row is a late-bound alias: the body runs only when its {:i :text :done?}
 ;; attrs change, so the whole hbox subtree is skipped on an unrelated re-render.
 (ga/register-alias! :todo/row
+  {:purity :pure}
   (fn [{:keys [i text done?]} _children]
     [:hbox {:spacing 8}
      [:check {:label text :active done? :hexpand true
