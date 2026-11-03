@@ -63,7 +63,7 @@
   ;; window is a child surface. GTKICCUP_NO_CAGE=1 runs it on the desktop
   ;; instead, for debugging. The examples, shot and dev always run on the
   ;; desktop: those windows are meant to be seen.
-  test    {:doc "Run all 33 test files against real GTK, inside the persistent cage."
+  test    {:doc "Run all 34 test files against real GTK, inside the persistent cage."
            :requires ([cage :as cage])
            :task (if (cage/here?)
                                       (doseq [f ["test/reconcile_test.clj"

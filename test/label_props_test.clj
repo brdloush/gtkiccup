@@ -11,6 +11,7 @@
 (defcfn wc-of "gtk_label_get_width_chars" [:pointer] :int)
 (defcfn just-of "gtk_label_get_justify" [:pointer] :int)
 (defcfn wm-of "gtk_label_get_wrap_mode" [:pointer] :int)
+(defcfn nw-of "gtk_label_get_natural_wrap_mode" [:pointer] :int)
 (defcfn sel-of "gtk_label_get_selectable" [:pointer] :int)
 (defcfn visible-of "gtk_widget_get_visible" [:pointer] :int)
 
@@ -36,15 +37,18 @@
 (def t2 (reconcile root-spec win t
                    (normalize [:vbox {}
                                [:label {:ellipsize :middle :lines 2 :max-width-chars 18
-                                        :width-chars 24 :justify :center :wrap-mode :word
-                                        :selectable true}
+                                        :width-chars 24 :justify :center :wrap-mode :word-char
+                                        :natural-wrap :word :selectable true}
                                 title]])))
 (assert (= 2 (ell-of l)) ":ellipsize :middle")
 (assert (= 2 (lines-of l)) ":lines 2")
 (assert (= 18 (maxc-of l)) ":max-width-chars")
 (assert (= 24 (wc-of l)) ":width-chars")
 (assert (= 2 (just-of l)) ":justify :center")
-(assert (= 2 (wm-of l)) ":wrap-mode :word")
+;; PangoWrapMode numbers WORD 0, CHAR 1, WORD_CHAR 2, NONE 3 -- not the
+;; GtkWrapMode order a text view uses. :word-char is the value that tells them apart.
+(assert (= 2 (wm-of l)) ":wrap-mode :word-char is PANGO_WRAP_WORD_CHAR")
+(assert (= 2 (nw-of l)) ":natural-wrap :word is GTK_NATURAL_WRAP_WORD")
 (assert (= 1 (sel-of l)) ":selectable true")
 (println "   -> ellipsize" (ell-of l) "lines" (lines-of l) "chars" (maxc-of l)
          "/" (wc-of l) "justify" (just-of l) "wrap" (wm-of l) "selectable" (sel-of l))
@@ -61,6 +65,8 @@
 (assert (= 0 (ell-of l)) "ellipsize back to none")
 (assert (= -1 (lines-of l)) "lines back to all")
 (assert (= -1 (maxc-of l)) "the width cap is gone")
+(assert (= 0 (wm-of l)) "wrap mode back to PANGO_WRAP_WORD")
+(assert (= 0 (nw-of l)) "natural wrap back to GTK_NATURAL_WRAP_INHERIT")
 (println "   -> ellipsize" (ell-of l) "lines" (lines-of l) "chars" (maxc-of l))
 
 (println "5) :visible hides the widget, :overflow clips it")

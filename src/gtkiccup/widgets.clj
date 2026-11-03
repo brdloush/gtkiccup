@@ -455,9 +455,9 @@
                        (g/label-set-max-width-chars w (int (:max-width-chars p -1)))
                        (g/label-set-width-chars w (int (:width-chars p -1)))
                        (g/label-set-justify w (get g/justify (:justify p :left) 0))
-                       (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :none) 0))
+                       (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :word) 0))
                        (when-let [nw (:natural-wrap p)]
-                         (g/label-set-natural-wrap-mode w (get g/natural-wrap nw 1)))
+                         (g/label-set-natural-wrap-mode w (get g/natural-wrap nw 0)))
                        (g/label-set-selectable w (g/->gbool (:selectable p)))
                        w))
             :apply (fn [w p changed]
@@ -482,11 +482,11 @@
                      (when (contains? changed :justify)
                        (g/label-set-justify w (get g/justify (:justify p :left) 0)))
                      (when (contains? changed :wrap-mode)
-                       (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :none) 0)))
+                       (g/label-set-wrap-mode w (get g/wrap-mode (:wrap-mode p :word) 0)))
                      (when (contains? changed :natural-wrap)
                        (if-let [nw (:natural-wrap p)]
-                         (g/label-set-natural-wrap-mode w (get g/natural-wrap nw 1))
-                         (g/label-set-natural-wrap-mode w 1)))
+                         (g/label-set-natural-wrap-mode w (get g/natural-wrap nw 0))
+                         (g/label-set-natural-wrap-mode w 0)))
                      (when (contains? changed :selectable)
                        (g/label-set-selectable w (g/->gbool (:selectable p)))))}
 
@@ -528,11 +528,10 @@
                            (g/editable-set-text w v)))))}
 
    ;; A read-only, word-wrapping block of text -- the lyric line. Unlike a
-   ;; GtkLabel, whose NATURAL width is the whole one-line string (so a long line
-   ;; drags the split view's sidebar wider, and whose natural_wrap knob this
-   ;; GTK ignores), a GtkTextView reports a SMALL natural width and wraps to
-   ;; whatever width it is GIVEN: the row grows TALLER with the text, never
-   ;; wider. It is made non-interactive (no caret, no editing, no focus) so it
+   ;; GtkLabel, whose NATURAL width can be the whole one-line string (so a long
+   ;; line drags the split view's sidebar wider), a GtkTextView reports a SMALL
+   ;; natural width and wraps to whatever width it is GIVEN: the row grows
+   ;; TALLER with the text, never wider. It is made non-interactive (no caret, no editing, no focus) so it
    ;; is pure display text.
    :text-view {:text-prop  :text
                :ctor  (fn [p]

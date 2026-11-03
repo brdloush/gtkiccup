@@ -10,10 +10,11 @@ takes the common props below. `gtkiccup.adw` adds more -- see
 | --- | --- | --- | --- |
 | `:vbox` | `:spacing` (default 0), `:homogeneous` | -- | any number |
 | `:hbox` | `:spacing` (default 0), `:homogeneous` | -- | any number |
-| `:label` | `:label` `:markup` `:wrap` `:wrap-mode` `:lines` `:ellipsize` `:xalign` `:yalign` `:justify` `:selectable` `:width-chars` `:max-width-chars` | -- | text only |
+| `:label` | `:label` `:markup` `:wrap` `:wrap-mode` `:natural-wrap` `:lines` `:ellipsize` `:xalign` `:yalign` `:justify` `:selectable` `:width-chars` `:max-width-chars` | -- | text only |
 | `:button` | `:label` `:icon` `:has-frame` (default true) | `:on-click` | text, or one child -- and once a child is set, GTK stops showing `:label` |
 | `:check` | `:label` `:active` | `:on-toggle` | text only |
 | `:entry` | `:value` `:placeholder` | `:on-change` `:on-activate` | text only |
+| `:text-view` | `:text`, `:wrap-mode` (default `:word`), `:justify`, `:margin` (also sets the left and right text margins, at build only) | -- | text only |
 | `:bin` | -- | -- | one child, given the whole allocation |
 | `:clamp` | `:max` width (default -1, i.e. unset; `gtkiccup.adw`'s swap sets 600) | -- | one child, centred, and in plain GTK4 it is a centred `GtkBox` rather than a `GtkClamp`: `:max` becomes a size *request*, so a clamp is also why a window cannot be dragged narrower than that. `:min` is read by nobody here -- it belongs to `AdwClamp` -- and it is applied once, at construction, so raising `:max` on a re-render does nothing until the widget is rebuilt. `test/clamp_test.clj` |
 | `:overlay` | -- | -- | one child, plus any number with `:slot :over` floating on top |
@@ -68,6 +69,22 @@ A label's shape comes from the props that decide how much of a string fits:
 the part you can afford to lose), `:lines` caps the height of wrapped text, and
 `:width-chars` *asks for* a width while `:max-width-chars` *caps* one.
 `:selectable` makes it copyable.
+
+With `:wrap true`, `:wrap-mode` picks where a line breaks: `:word` (the
+default), `:char`, `:word-char`, or `:none` (Pango 1.56 and later).
+`:natural-wrap` changes only the size the label *asks for*, never the wrapping:
+`:inherit` (GTK's default) follows `:wrap-mode`, `:none` asks for the whole
+string on one line, `:word` asks for a width wrapped at word boundaries.
+Removing it goes back to `:inherit`.
+
+A `:text-view` is the other way to show wrapped text. It is a `GtkTextView`
+that cannot be edited and shows no caret. Its natural width is small, so in
+a pane whose width is negotiated -- a split view's sidebar -- a long line
+makes the row taller, not the pane wider. GTK gives a text view `vexpand` by
+default, because it is scrollable; gtkiccup turns that off, or each line in a
+list would take spare height. `:wrap-mode` takes the same keywords as on a
+label, but GTK numbers the modes differently for the two widgets, so they
+have separate tables in `gtkiccup.ffi` (`wrap-mode`, `tv-wrap-mode`).
 
 Handler arguments: `:on-click` gets none, `:on-change` and `:on-activate` get
 the entry's current text, `:on-toggle` gets the new boolean, and
@@ -278,7 +295,7 @@ data handler with no dispatch fn set is refused when the view renders.
 The canonical form is the positional `[action & args]` vector -- `[:todo/toggle 3]`,
 `[:monitor/toast-pid name pid]`, `[:weather/units]`, `[:deck/key]` -- each routed by a
 single `ui/set-dispatch!` fn in the matching `examples/` app. The value a signal
-*produces* (a `:change`'s text, a `:toggle`'s bool, an `:on-key`'s event map) arrives in
+*produces* (an `:on-change`'s text, an `:on-toggle`'s bool, an `:on-key`'s event map) arrives in
 `:gtkiccup/args`, since GTK has no JS event object to interpolate placeholders from. A
 handler that must return a value still can: the deck's `:on-key` dispatch returns truthy
 only when it consumed the key, so unknown keys fall through to GTK.

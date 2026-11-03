@@ -1,6 +1,6 @@
 ;; The small leaf widgets a real UI is packed with: a separator, a ratio
-;; frame, a range, a menu button, and the child-on-a-button the app's controls
-;; are made of. Each one is checked at build time and after a re-render.
+;; frame, a range, a menu button, the child-on-a-button the app's controls
+;; are made of, and a read-only text view. Each one is checked at build time and after a re-render.
 (require '[babashka.ffi :as ffi :refer [defcfn]]
          '[gtkiccup.core :as ui] '[gtkiccup.ffi :as g]
          ;; :picture comes from adw, and the frame's child is a real image
@@ -19,6 +19,13 @@
 (defcfn mb-icon "gtk_menu_button_get_icon_name" [:pointer] :string)
 (defcfn mb-frame "gtk_menu_button_get_has_frame" [:pointer] :int)
 (defcfn mb-child "gtk_menu_button_get_child" [:pointer] :pointer)
+(defcfn tv-editable "gtk_text_view_get_editable" [:pointer] :int)
+(defcfn tv-cursor "gtk_text_view_get_cursor_visible" [:pointer] :int)
+(defcfn tv-wrap "gtk_text_view_get_wrap_mode" [:pointer] :int)
+(defcfn tv-justify "gtk_text_view_get_justification" [:pointer] :int)
+(defcfn tv-buffer "gtk_text_view_get_buffer" [:pointer] :pointer)
+(defcfn buffer-chars "gtk_text_buffer_get_char_count" [:pointer] :int)
+(defcfn vexpand-of "gtk_widget_get_vexpand" [:pointer] :int)
 
 (g/gtk-init)
 (def normalize @#'ui/normalize)
@@ -135,6 +142,27 @@
 (def t12 (reconcile root-spec win t11 (normalize [:vbox {} [:scale {:min 0 :max 160 :step 0}]])))
 (assert (= "GtkScale" (type-name (:widget (node t12 0)))) ":step 0 coerced")
 (println "   -> no step, no crash")
+
+(println "9) :text-view is read-only text that wraps by word")
+;; GtkWrapMode is NONE 0, CHAR 1, WORD 2 -- not PangoWrapMode's order, which a
+;; label uses. A text view is scrollable, so GTK turns vexpand on by default;
+;; the ctor turns it off, or every line in a list would hoard height.
+(def t13 (reconcile root-spec win t12 (normalize [:vbox {} [:text-view "a lyric line"]])))
+(def tv (:widget (node t13 0)))
+(assert (= "GtkTextView" (type-name tv)))
+(assert (= 0 (tv-editable tv)) "not editable")
+(assert (= 0 (tv-cursor tv)) "no caret")
+(assert (= 2 (tv-wrap tv)) "wraps by word by default")
+(assert (= 0 (vexpand-of tv)) "vexpand pinned off")
+(assert (= 12 (buffer-chars (tv-buffer tv))) "the text is in the buffer")
+(def t14 (reconcile root-spec win t13
+                    (normalize [:vbox {} [:text-view {:wrap-mode :char :justify :center}
+                                          "a longer lyric line"]])))
+(assert (= tv (:widget (node t14 0))) "patched, not rebuilt")
+(assert (= 1 (tv-wrap tv)) ":wrap-mode :char is reactive")
+(assert (= 2 (tv-justify tv)) ":justify :center is reactive")
+(assert (= 19 (buffer-chars (tv-buffer tv))) "new text replaced the old")
+(println "   ->" (type-name tv) "wrap" (tv-wrap tv) "chars" (buffer-chars (tv-buffer tv)))
 
 (g/window-destroy win)
 (println "ALL OK")

@@ -1,21 +1,22 @@
 # How it works
 
-Nine namespaces. Six do the work -- `ffi`, `ratom`, `widgets`, `hiccup`,
+Ten namespaces. Six do the work -- `ffi`, `ratom`, `widgets`, `hiccup`,
 `renderer`, `core` -- `refs` keeps the widget names a hiccup tree cannot carry,
-and two are optional: `dev` (development conveniences, never required by a
+`alias` holds the late-bound components, and two are optional: `dev` (development conveniences, never required by a
 running app) and `adw` (libadwaita, which core does not know exists).
 
 | File | Lines | Job |
 | --- | --- | --- |
-| `src/gtkiccup/ffi.clj` | 421 | `defcfn` bindings for the GTK4/GObject symbols the library uses |
+| `src/gtkiccup/ffi.clj` | 422 | `defcfn` bindings for the GTK4/GObject symbols the library uses |
 | `src/gtkiccup/ratom.clj` | 25 | reactive atom: a normal atom whose watch marks the UI dirty |
-| `src/gtkiccup/widgets.clj` | 694 | the tag and signal tables, and the props every widget takes |
+| `src/gtkiccup/widgets.clj` | 693 | the tag and signal tables, and the props every widget takes |
 | `src/gtkiccup/hiccup.clj` | 414 | validation, text children, splicing, and the translation into Replicant's hiccup |
 | `src/gtkiccup/renderer.clj` | 399 | Replicant's `IRender` protocol, for GTK |
 | `src/gtkiccup/core.clj` | 328 | the window, the main loop, the GTK thread, the public API |
 | `src/gtkiccup/refs.clj` | 139 | named widget references, kept live by the renderer |
+| `src/gtkiccup/alias.clj` | 138 | late-bound aliases: components as a namespaced keyword plus plain-data attrs, expanded only when the attrs change |
 | `src/gtkiccup/dev.clj` | 260 | dev-only: var watches, auto-refresh, file watching, screenshots |
-| `src/gtkiccup/adw.clj` | 642 | optional: libadwaita bindings and 22 tags, 20 of them new -- its `:bin` and `:clamp` replace the core tags of the same name, for 36 tags in total. Core does not know it exists |
+| `src/gtkiccup/adw.clj` | 642 | optional: libadwaita bindings and 22 tags, 20 of them new -- its `:bin` and `:clamp` replace the core tags of the same name, for 37 tags in total. Core does not know it exists |
 
 An app's own strings are its own business, so translation is not in `src/`.
 `examples/i18n.clj` is the whole mechanism -- a dictionary per language, `t`,

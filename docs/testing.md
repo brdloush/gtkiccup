@@ -16,9 +16,12 @@ and so does a single file run as `bb test/keyed_test.clj`.
 | file | what it pins down |
 | --- | --- |
 | `reconcile_test.clj` | a patched widget keeps its pointer; children grow, shrink; a changed tag replaces |
+| `alias_test.clj` | a late-bound alias expands once for equal attrs and again only for the rows whose attrs changed; `alias-stats` counts it; nested aliases stay lazy; hooks fire once and not on a cache hit; an unregistered alias keyword fails at emit time; `:on-alias-exception` logs and the frame survives; `:replicant/alias-data` reaches the attrs |
 | `keyed_test.clj` | keyed reorders and inserts move the same widgets; a removed widget is really finalized; a tag change keeps its position, also in a one-child container; a container with no positional insert still ends in the right order; hooks run once, with the widget already parented; data handlers dispatch, and are refused with nothing to dispatch to; classes in the tag; the tree snapshot carries classes under `:class` |
 | `signals_test.clj` | clicks fire; a handler re-supplied by a later render replaces the stale one; and after 40 widget swaps the callback arenas come back -- the leak `connect!`'s `free-notify` was written for; an entry's `:on-change` fires from real typing alone, and `:on-activate` hands over the same text |
 | `props_test.clj` | an explicit nil differs from an absent key; removal restores GTK defaults; css classes come off; a handler gained after creation connects |
+| `memo_test.clj` | a data handler resolves to the same fn across renders for the same `[prop data]`, a different fn for different data, and still dispatches at click time; an fn handler passes through; a plain fn component re-runs every render. No window |
+| `memo_budget_test.clj` | with a tiny byte budget the data-handler cache stays bounded while distinct handlers churn; handlers used every render keep the same fn; a cold handler is really evicted. No window |
 | `text_children_test.clj` | text children fold into the text prop; the four refusals |
 | `error_recovery_test.clj` | a bad view and a throwing handler leave the loop alive, and it recovers |
 | `repl_reload_test.clj` | redefine a view, `refresh!`, see it on screen |
@@ -27,8 +30,8 @@ and so does a single file run as `bb test/keyed_test.clj`.
 | `adw_test.clj` | every Adw spec builds the GObject type it claims; each slot lands under the right parent; props reach real Adw setters and stay reactive; a `[:row "text"]` normalizes to its title; `adw/toast!` posts a toast; `:status-page` takes its title, description and icon at build, not only on a change; `:spinner` is an `AdwSpinner` |
 | `splice_test.clj` | vector runs splice as children: the `(mapv ...)` shape, computed versus literal, nested runs, empty and nil runs dropped cleanly |
 | `center_box_test.clj` | the slots fill at build; removing a slotted child clears only the slot it was really in; a stable re-render; keyed children keep their slots across a reorder |
-| `leaf_widgets_test.clj` | separator orientation, aspect-frame ratio and child, scale bounds with the value written only when it differs, the menu-button look, child-on-a-button -- at build time and after a re-render |
-| `label_props_test.clj` | every shape prop arrives where GTK reads it; the defaults are GTK's own; the props are reactive; removed props fall back |
+| `leaf_widgets_test.clj` | separator orientation, aspect-frame ratio and child, scale bounds with the value written only when it differs, the menu-button look, child-on-a-button -- at build time and after a re-render; a `:text-view` is read-only, wraps by word, keeps `vexpand` off, and patches its text, wrap mode and justification in place |
+| `label_props_test.clj` | every shape prop arrives where GTK reads it, `:wrap-mode` and `:natural-wrap` included, with the Pango and GTK enum numbers; the defaults are GTK's own; the props are reactive; removed props fall back |
 | `picture_props_test.clj` | `:file` loads a texture; the defaults are the useful ones; `:content-fit` is reactive; `:can-shrink false` sets a floor |
 | `refs_test.clj` | `:ref` registers the widget and resolves by name or keyword; moving it points the name at the new widget; an unknown or dropped name is nil, not dangling; two live widgets sharing a name warn exactly ONCE, while a rebuild handing the name to a fresh widget stays silent |
 | `application_test.clj` | the application-window ctor builds a real application window; the app carries the id; content is exactly one widget; the title behaves like any window's; two windows under one app; `run`'s reconcile path renders into it; and a presented one is both realized and mapped |

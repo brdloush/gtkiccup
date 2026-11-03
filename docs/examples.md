@@ -90,7 +90,7 @@ sample, so its figures are this machine's, taken at this moment -- the
 self-highlighting row and the top-process list below it are what the shot is
 for, not any particular number.
 
-The UI is one pure function of one map. `examples/monitor.clj` is 178 lines,
+The UI is one pure function of one map. `examples/monitor.clj` is 184 lines,
 `examples/sysinfo.clj` (all the `/proc` reading) is 215, and the libadwaita
 bindings are 642. Core did not have to change much to allow it -- see
 [Extension points](internals.md#extension-points).

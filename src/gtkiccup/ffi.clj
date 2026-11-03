@@ -385,22 +385,23 @@
   {:left 0 :right 1 :center 2 :fill 3})
 
 (def wrap-mode
-  "PangoWrapMode."
-  {:none 0 :char 1 :word 2 :word-char 3})
+  "PangoWrapMode, what gtk_label_set_wrap_mode takes. WORD is 0, not NONE:
+   Pango added NONE last (1.56), so it is 3. Read off the typelib with
+   `bb dev/enum.clj Pango WrapMode`."
+  {:word 0 :char 1 :word-char 2 :none 3})
 
 (def tv-wrap-mode
-  "GtkWrapMode -- NOT the same values as PangoWrapMode above: CHAR and WORD
-   swap. This is what gtk_text_view_set_wrap_mode takes."
+  "GtkWrapMode, what gtk_text_view_set_wrap_mode takes -- NOT the values of
+   PangoWrapMode above: here NONE is 0 and every other mode moves up by one."
   {:none 0 :char 1 :word 2 :word-char 3})
 
 (def natural-wrap
-  "GtkNaturalWrapMode -- only the modes that differ. :normal (the GTK default)
-   reports the whole string on ONE line as the label's natural width, so inside
-   a size-negotiated pane a long line drags the container's width out with it.
-   :none reports the minimum instead, so a wrapping label wraps to whatever
-   width it is GIVEN and the container no longer tracks the text length. This
-   is the knob behind 'a long lyric line must not widen the whole sidebar'."
-  {:normal 0 :none 1})
+  "GtkNaturalWrapMode: how a wrapping label computes its NATURAL size (never
+   the wrapping itself). :inherit (0, GTK's default) follows the wrap mode;
+   :none asks for the whole string on one line, so a long line drags a
+   size-negotiated container wider; :word asks for a width wrapped at word
+   boundaries."
+  {:inherit 0 :none 1 :word 2})
 
 (def overflow
   "GtkOverflow. :hidden is what makes border-radius clip a picture: without it

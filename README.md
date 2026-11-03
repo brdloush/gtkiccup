@@ -86,7 +86,7 @@ Two posts made this possible, and are worth reading first:
 
 | | |
 | --- | --- |
-| library | about 2,900 lines of Clojure, libadwaita support and dev tools included (`wc -l src/gtkiccup/*.clj`) |
+| library | about 3,500 lines of Clojure, libadwaita support and dev tools included (`wc -l src/gtkiccup/*.clj`) |
 | dependencies | one: Replicant, pure `.cljc` with no dependencies of its own |
 | memory | about 230 MB resident for a small app (`bb counter`, read out of `/proc`). Most of it is the babashka binary and GTK itself -- bare `bb` sits at 69 MB. `bb -Xmx96m` saved 37 MB on the monitor |
 | CPU when idle | 0.00% of a core (`bb counter`, sampled over six seconds from `/proc/<pid>/stat`) |
