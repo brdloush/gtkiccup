@@ -33,7 +33,8 @@
   (:require [babashka.ffi :as ffi :refer [defcfn]]
             [gtkiccup.core :as ui]
             [gtkiccup.ffi :as g]
-            [gtkiccup.refs :as refs]))
+            [gtkiccup.refs :as refs]
+            [gtkiccup.widgets :as widgets]))
 
 (g/load-gtk-library "adwaita-1" 0)
 
@@ -290,6 +291,23 @@
     (cond (g/null? w) nil                ; not (nil? w): see gtkiccup.ffi/null?
           (= i n)     w
           :else       (recur (widget-get-next-sibling w) (inc i)))))
+
+(defn- carousel-page!
+  "Shows page `n` of a carousel. adw_carousel_scroll_to does nothing while the
+   carousel has no size: it aims at the page's snap point, and those are only
+   known after the first allocation. A starting page is always set before that,
+   so it would be lost whenever the window is laid out after the first render
+   -- which a headless compositor does every time. Until there is a size, the
+   scroll waits for the first frame that has one, and jumps rather than
+   animates, since nothing was on screen to animate from."
+  [w n animate?]
+  (let [go! #(when-let [child (nth-child w n)]
+               (carousel-scroll-to w child (g/->gbool %)))]
+    (if (pos? (g/widget-get-width w))
+      (go! animate?)
+      (widgets/each-frame-until! w #(when (pos? (g/widget-get-width w))
+                                      (go! false)
+                                      true)))))
 
 (defn- single-child
   "A container that holds exactly one child, ignoring slots."
@@ -571,15 +589,11 @@
                               (carousel-set-interactive (g/->gbool (:wheel p false)))))
                   :apply  (fn [w p changed]
                             (when (contains? changed :page)
-                              (when-let [child (nth-child w (:page p 0))]
-                                (carousel-scroll-to w child
-                                                    (g/->gbool (:animate p true))))))
+                              (carousel-page! w (:page p 0) (:animate p true))))
                   ;; the pages do not exist when :ctor and :apply run, so the
                   ;; starting page has to be set once they do -- and without
                   ;; animation, since there is nothing to animate from
-                  :after-children (fn [w p]
-                                    (when-let [child (nth-child w (:page p 0))]
-                                      (carousel-scroll-to w child 0)))
+                  :after-children (fn [w p] (carousel-page! w (:page p 0) false))
                   :append (fn [parent child _props] (carousel-append parent child))
                   :remove (fn [parent child _props] (carousel-remove parent child))}
 

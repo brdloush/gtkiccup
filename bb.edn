@@ -17,7 +17,17 @@
            :requires ([babashka.process])
            :task (babashka.process/exec "bb" "-Xmx96m" "-m" "monitor")}
 
-  shot    {:doc "Write docs/images/<app>.png -- the app screenshots itself. bb shot [monitor|weather|deck]"
+  ;; `shot` runs inside a private headless cage, which shot.clj resizes to the
+  ;; target's :size at scale 2: a sharp picture of a fixed size, the same on
+  ;; any machine, and no window on your desktop. shot-direct is the same app on
+  ;; your own display, at its scale.
+  shot    {:doc "Write docs/images/<app>.png at scale 2, inside a private headless cage. bb shot [monitor|weather|deck] [path]"
+           :requires ([babashka.process])
+           :task (apply babashka.process/exec
+                        "scripts/headless" "bb" "-Xmx96m" "-m" "shot" *command-line-args*)}
+
+  shot-direct
+          {:doc "The same screenshot, on your current display and at its scale. bb shot-direct [monitor|weather|deck] [path]"
            :requires ([babashka.process])
            :task (apply babashka.process/exec
                         "bb" "-Xmx96m" "-m" "shot" *command-line-args*)}
@@ -41,65 +51,66 @@
            :requires ([desktop])
            :task (desktop/-main "uninstall")}
 
-  ;; The compositor `bb test` runs in. `bb cage` once per login, move its
-  ;; single window to a spare workspace, and test runs stop touching your
-  ;; desktop. Starting it maps one host window and takes focus once -- that is
-  ;; the whole point versus wrapping each run in `cage -- bb test`.
-  cage        {:doc "Start the persistent cage compositor (one host window; park it on a spare workspace)."
-               :task (shell "scripts/cage-server" "start")}
-
-  cage-stop   {:doc "Stop the persistent cage compositor."
-               :task (shell "scripts/cage-server" "stop")}
-
-  cage-status {:doc "Report whether cage is running and on which socket."
-               :task (shell "scripts/cage-server" "status")}
-
   dev     {:doc "Start an nREPL server, then connect your editor and see gtkiccup.dev."
            :task (shell "bb" "nrepl-server" "1667")}
 
-  ;; The one task that runs inside cage by default: a test run opens and closes
-  ;; dozens of windows, and each would take focus on the desktop. The first call
-  ;; starts cage if it is not up, then re-runs this task inside it, where every
-  ;; window is a child surface. GTKICCUP_NO_CAGE=1 runs it on the desktop
-  ;; instead, for debugging. The examples, shot and dev always run on the
+  ;; `bb test` runs the suite inside a PRIVATE, windowless headless cage
+  ;; (scripts/headless): one fresh compositor per run, so no window maps on
+  ;; your desktop and nothing steals focus. tests-direct owns the file list;
+  ;; `test` is just it, wrapped. The examples, shot and dev always run on the
   ;; desktop: those windows are meant to be seen.
-  test    {:doc "Run all 34 test files against real GTK, inside the persistent cage."
-           :requires ([cage :as cage])
-           :task (if (cage/here?)
-                                      (doseq [f ["test/reconcile_test.clj"
-                            "test/alias_test.clj"
-                            "test/keyed_test.clj"
-                            "test/signals_test.clj"
-                            "test/repl_reload_test.clj"
-                            "test/dev_test.clj"
-                            "test/error_recovery_test.clj"
-                            "test/text_children_test.clj"
-                            "test/splice_test.clj"
-                            "test/props_test.clj"
-                            "test/memo_test.clj"
-                            "test/memo_budget_test.clj"
-                            "test/extension_test.clj"
-                            "test/adw_test.clj"
-                            "test/application_test.clj"
-                            "test/scrolled_test.clj"
-                            "test/clamp_test.clj"
-                            "test/overlay_split_view_test.clj"
-                            "test/view_stack_test.clj"
-                            "test/view_switcher_test.clj"
-                            "test/center_box_test.clj"
-                            "test/refs_test.clj"
-                            "test/label_props_test.clj"
-                            "test/picture_props_test.clj"
-                            "test/leaf_widgets_test.clj"
-                            "test/sysinfo_test.clj"
-                            "test/screenshot_test.clj"
-                            "test/openmeteo_test.clj"
-                            "test/weather_test.clj"
-                            "test/i18n_test.clj"
-                            "test/input_test.clj"
-                            "test/motion_test.clj"
-                            "test/deckmd_test.clj"
-                            "test/desktop_test.clj"]]
-                   (println (str "\n== " f))
-                   (shell "bb" f))
-                   (cage/rerun "test"))}}}
+  test    {:doc "Run all 34 test files against real GTK, inside a private headless cage (no window, no focus steal). For your own display: bb tests-direct."
+           :requires ([babashka.process])
+           :task (babashka.process/exec "scripts/headless" "bb" "tests-direct")}
+
+  tests-direct
+          {:doc "Run the whole suite against the display you are on now. Same files as `bb test`, but each window maps on your desktop."
+           :requires ([babashka.process])
+           ;; One child per file, and no early exit: :continue keeps the loop
+           ;; going, so one broken file does not hide the ones behind it. The
+           ;; summary names whatever failed, and the exit code is ours to set.
+           :task (let [files ["test/reconcile_test.clj"
+                         "test/alias_test.clj"
+                         "test/keyed_test.clj"
+                         "test/signals_test.clj"
+                         "test/repl_reload_test.clj"
+                         "test/dev_test.clj"
+                         "test/error_recovery_test.clj"
+                         "test/text_children_test.clj"
+                         "test/splice_test.clj"
+                         "test/props_test.clj"
+                         "test/memo_test.clj"
+                         "test/memo_budget_test.clj"
+                         "test/extension_test.clj"
+                         "test/adw_test.clj"
+                         "test/application_test.clj"
+                         "test/scrolled_test.clj"
+                         "test/clamp_test.clj"
+                         "test/overlay_split_view_test.clj"
+                         "test/view_stack_test.clj"
+                         "test/view_switcher_test.clj"
+                         "test/center_box_test.clj"
+                         "test/refs_test.clj"
+                         "test/label_props_test.clj"
+                         "test/picture_props_test.clj"
+                         "test/leaf_widgets_test.clj"
+                         "test/sysinfo_test.clj"
+                         "test/screenshot_test.clj"
+                         "test/openmeteo_test.clj"
+                         "test/weather_test.clj"
+                         "test/i18n_test.clj"
+                         "test/input_test.clj"
+                         "test/motion_test.clj"
+                         "test/deckmd_test.clj"
+                         "test/desktop_test.clj"]]
+                   (loop [fs (seq files) bad []]
+                     (if-let [f (first fs)]
+                       (do (println (str "\n== " f))
+                           (let [{:keys [exit]} (deref (babashka.process/shell
+                                                        {:continue true} "bb" f))]
+                             (recur (next fs) (if (zero? exit) bad (conj bad f)))))
+                       (if (empty? bad)
+                         (println (str "SUITE OK files=" (count files)))
+                         (do (println (str "SUITE FAILED " (count bad) " of "
+                                           (count files) " -- " (pr-str bad)))
+                             (System/exit 1))))))}}}

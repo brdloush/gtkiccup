@@ -2,9 +2,10 @@
 
 Three examples do the arguing. (`bb counter` and `bb todo` run too, but they
 prove the basics rather than the look.) Each of the three renders its own
-screenshot, at the display's full pixel density, via `bb shot` -- so on a 2x
-screen the PNG is twice the window's size. That is why the images here have a
-fixed display width.
+screenshot via `bb shot`, inside a private headless compositor set to the
+window's size at scale 2 -- so the PNG is twice the window's size, and the same
+on any machine. That is why the images here have a fixed display width.
+`bb shot-direct` takes the picture on your own display instead, at its scale.
 
 All five are built the same way: one reactive atom of state, the UI as a pure
 function of it, repeated rows registered as **late-bound aliases** and every event
@@ -156,11 +157,11 @@ bb monitor    # the libadwaita system monitor
 bb counter    # the glimmer counter
 bb todo       # dynamic list, entry, check buttons
 
-bb shot weather   # regenerate a screenshot (the app shoots itself)
+bb shot weather   # regenerate a screenshot (the app shoots itself, headless, at scale 2)
 LANG=cs_CZ.UTF-8 bb shot weather docs/images/weather-cs.png   # the same, in Czech
 bb shot monitor
 bb shot deck
-bb test       # all thirty-four test files (see Tests below)
+bb test       # all thirty-four test files, in a headless cage (see Tests below)
 bb dev        # nREPL server on 1667, for editor-driven work
 
 bb install-desktop     # Linux: make the apps look native in the switcher and app grid

@@ -11,6 +11,7 @@
 | `last-error` | Atom: the last render or handler failure, `nil` after a good render. |
 | `(load-css! css)` / `(load-css! css priority)` | Installs a `GtkCssProvider` for the display, so `:class` means something. Needs a display. For an app's own stylesheet, pass `:css` to `run` instead: it is installed before the first render, so no widget is ever measured unstyled. |
 | `(register-widget! tag spec)` | Adds or replaces a widget tag. |
+| `(each-frame-until! widget f)` | Calls `(f)` once per frame the widget draws, on the GTK thread and before that frame's layout, until it returns truthy. For a spec whose GTK call is dropped while the widget has no size yet -- `:carousel` sets its starting page this way. It keeps frames coming while it waits, so `f` must become true soon. A throwing `f` is reported and stops it. |
 | `(register-signal! prop signal invoke)` / `(register-signal! prop signal invoke opts)` | Adds an `:on-*` prop. `invoke` is `(fn [user-fn widget raw-args])` and decides what the handler receives. `opts` carries what the callback's C signature has to be: `:argtypes` (default the two pointers every signal starts with) and `:rettype` (default `:void`) -- signals that pass more than an instance and an event, the `change-value` of a range say, need them, because a closure reads its arguments by position and cannot guess them. |
 | `widgets` `signals` | The tables themselves, as atoms. |
 | `default-window` | `{:ctor :set-content}` for a plain `GtkWindow`. |

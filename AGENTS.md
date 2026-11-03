@@ -25,19 +25,23 @@ around them.
 
 ```bash
 bb tasks                 # every task
-bb test                  # all test files, in sequence; stops at the first failure
+bb test                  # all test files, inside a private headless cage
+bb tests-direct          # the same suite, on your own display
 bb test/keyed_test.clj   # one test file
 bb counter               # an example (also: todo, monitor, weather, deck)
-bb shot monitor          # rewrite docs/images/monitor.png (also: weather, deck)
+bb shot monitor          # rewrite docs/images/monitor.png, headless at scale 2 (also: weather, deck)
 ```
 
-Tests open real windows, so they need a display (Wayland or X11). `bb test`
-runs them inside a persistent cage compositor, started on first use, so they do
-not steal focus; `GTKICCUP_NO_CAGE=1` turns that off. Everything else opens on
-the desktop. A test file
-is a plain script: it prints numbered steps, asserts, and ends with `ALL OK`.
-A new test file must also be added to the `test` task in `bb.edn` and to
-`docs/testing.md`.
+Tests open real windows. `bb test` runs them inside a fresh, windowless
+headless [cage](https://github.com/cage-kiosk/cage) (`scripts/headless`), so
+nothing maps on the desktop and nothing steals focus; it needs `cage`
+installed, but no display of its own. `bb tests-direct` runs the same files on
+your display instead. Both run every file and end with `SUITE OK files=N` or
+`SUITE FAILED ...` naming the failures. Everything else opens on the desktop.
+A test file is a plain script: it prints numbered steps, asserts, and ends
+with `ALL OK`. A new test file must also be added to the file list in the
+`tests-direct` task in `bb.edn` (a file not listed there silently never runs)
+and to `docs/testing.md`.
 
 Needs the dynamically linked babashka >= 1.13.220 and GTK4. Dependencies
 resolve without a JVM.

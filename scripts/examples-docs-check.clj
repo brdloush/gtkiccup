@@ -6,7 +6,7 @@
 ;; Exit 0 only when EVERYTHING below passes; otherwise prints one
 ;; "FAIL: <what>" line per failure plus progress counts. Runs headless (no
 ;; display): loading the examples resolves the FFI tables but never gtk_init,
-;; and clj-kondo is static. The cage windowed suite is deliberately NOT run
+;; and clj-kondo is static. The windowed suite (`bb test`) is deliberately NOT run
 ;; here (flaky + out of scope); it runs once at claim time as a proof command.
 ;;
 ;; Citation convention (the machine-checked part):

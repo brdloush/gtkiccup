@@ -1,8 +1,9 @@
 ;; The :carousel tag: changing a :page prop animates. Proves motion is
 ;; declarative -- no imperative scroll calls in app code.
 ;;
-;; Note a trap this test exists to catch: an unrealised carousel accepts
-;; scroll_to and silently does nothing, so this must run in a real window.
+;; Note a trap this test exists to catch: a carousel with no size yet accepts
+;; scroll_to and silently does nothing, so this must run in a real window. Step
+;; 6 checks that a starting :page survives it.
 (require '[babashka.ffi :as ffi :refer [defcfn]]
          '[gtkiccup.adw :as adw] '[gtkiccup.core :as ui] '[gtkiccup.dev :as dev])
 (defcfn position "adw_carousel_get_position" [:pointer] :double)
@@ -86,5 +87,22 @@
 
 (ui/close!)
 (assert (nil? (deref th 3000 :TIMEOUT)))
+
+;; --- 6. a starting :page is kept --------------------------------------
+;; The carousel is built, and its starting page set, before the window has a
+;; size; scroll_to is a no-op until then. Under a headless compositor the
+;; first layout always comes later, and the window showed page 0 while the
+;; app said page 2.
+(reset! page 2)
+(reset! shown true)
+(def th2 (future (ui/run #'view :title "motion test 2" :width 520 :height 300
+                         :window adw/window)))
+(Thread/sleep 1500)
+(def car2 (dev/on-gtk-thread! #(-> @ui/current :tree :widget)))
+(def start-pos (dev/on-gtk-thread! #(position car2)))
+(println (format "6) built with :page 2, the carousel is at %.3f" (double start-pos)))
+(assert (< 1.99 start-pos 2.01) "the starting page was lost")
+(ui/close!)
+(assert (nil? (deref th2 3000 :TIMEOUT)))
 (println "ALL OK")
 (System/exit 0)

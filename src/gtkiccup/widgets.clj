@@ -109,6 +109,33 @@
 (def free-notify
   (ffi/callback (ffi/global-arena) free-notify! [:pointer :pointer] :void))
 
+;; The same cleanup as a plain GDestroyNotify, which takes only the user_data.
+(def destroy-notify
+  (ffi/callback (ffi/global-arena) (fn [data] (free-notify! data nil)) [:pointer] :void))
+
+(defn each-frame-until!
+  "Calls (f) once per frame `widget` draws, until it returns truthy, and then
+   stops. For work that has to wait for GTK: a widget has no size until the
+   frame after it is first laid out, and some calls are silently dropped until
+   then. Runs on the GTK thread, before that frame's layout. A throwing `f` is
+   reported and stops the callback.
+
+   While it waits it keeps frames coming, like a running animation does, so `f`
+   must become true soon. The trampoline gets its own arena, closed by GTK's
+   destroy-notify once the callback is removed or the widget is finalized."
+  [widget f]
+  (let [arena (ffi/shared-arena)
+        cb    (ffi/callback arena
+                            (fn [_widget _clock _data]
+                              (try (if (f) 0 1)   ; G_SOURCE_REMOVE / CONTINUE
+                                   (catch Throwable t
+                                     (report! "each-frame-until! fn failed" t)
+                                     0)))
+                            [:pointer :pointer :pointer] :int)]
+    (swap! arena->cb assoc cb arena)
+    (g/widget-add-tick-callback widget cb cb destroy-notify)
+    nil))
+
 (defn connect!
   "Connects one signal to a stable C callback that reads the current handler out
    of `holder`. The closure captured at creation time therefore never goes stale

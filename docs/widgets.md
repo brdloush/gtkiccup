@@ -334,7 +334,7 @@ local app that only parents windows. The app id is a different identity from
 | `:scroll` | `:h` `:v` scrollbar policy: `:automatic` `:never` `:always` `:external`, both defaulting to `:automatic` | one child |
 | `:banner` | `:title` `:revealed` (default `true` -- it is shown until you hide it) | -- |
 | `:spinner` | -- | -- |
-| `:carousel` | `:page` (an index -- changing it **animates**), `:animate` (default `true`), `:drag` and `:wheel` (both `false`: dragging is not free) | pages |
+| `:carousel` | `:page` (an index -- changing it **animates**; the starting page is shown from the first frame with a size), `:animate` (default `true`), `:drag` and `:wheel` (both `false`: dragging is not free) | pages |
 | `:revealer` | `:revealed` (default `true`), `:duration` (default 250 ms) | one child |
 | `:level` | `:value` `:min` `:max` (defaults 0 / 1 / 0, centred vertically) | -- |
 | `:picture` | `:file` (`:texture` / `:paintable` are synonyms), `:content-fit` (`:fill` `:contain` `:cover` `:scale-down`, default `:contain`; `:cover` fills a card without letterboxing), `:can-shrink` (default `true`) | -- |

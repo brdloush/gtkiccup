@@ -7,12 +7,20 @@
    waiting worker back onto the GTK thread, which is the only thread allowed to
    touch widgets.
 
+   `bb shot` runs this inside the headless cage (scripts/headless), where it
+   first sets the virtual output to the target's :size at scale 2 (or
+   GTKICCUP_SHOT_SCALE). cage sizes the window to the output, so the picture is
+   exactly :size, at HiDPI, the same on every machine. `bb shot-direct` shoots
+   on your own display instead, at its scale, and the window manager decides
+   the final size.
+
    `bb shot [monitor|weather|deck] [path]`"
   (:require [babashka.fs :as fs]
             [clojure.edn :as edn]
             [gtkiccup.adw :as adw]
             [gtkiccup.core :as ui]
             [gtkiccup.dev :as dev]
+            [wl-output]
             [deck]
             [monitor]
             [weather]))
@@ -44,7 +52,14 @@
               :size [560 820]
               ;; one HTTP round trip, then a render
               :settle 4000
-              :start (fn [] (weather/start-polling!))
+              ;; an empty config in a temp dir, never yours: the language then
+              ;; comes from LANG and the place is the default, so a saved
+              ;; language or city does not end up in the docs
+              :start (fn []
+                       (alter-var-root #'weather/*config-path*
+                                       (constantly (str (fs/create-temp-dir) "/bb-weather.edn")))
+                       (weather/reset-state!)
+                       (weather/start-polling!))
               :app   (fn [] (weather/app))
               :css   (fn [] weather/css)
               :overlay! (fn [w] (reset! weather/overlay w))}})
@@ -55,6 +70,12 @@
         (or (get targets name)
             (throw (ex-info (str "unknown target " name) {:known (keys targets)})))
         out  (or path (:path t))
+        scale (parse-long (or (System/getenv "GTKICCUP_SHOT_SCALE") "2"))
+        _    (when (System/getenv "GTKICCUP_HEADLESS")
+               (let [r (wl-output/set-output! (* scale (first size))
+                                              (* scale (second size)) scale)]
+                 (when-not (= :succeeded r)
+                   (throw (ex-info "could not size the headless output" {:result r})))))
         stop ((:start t))]
     (fs/create-dirs (fs/parent out))
     (try

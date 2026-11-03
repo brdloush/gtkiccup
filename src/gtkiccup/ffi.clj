@@ -39,6 +39,11 @@
 ;; "after-paint" signal is the first moment a frame's layout and allocation are
 ;; known -- what :on-layout hangs off.
 (defcfn widget-get-frame-clock "gtk_widget_get_frame_clock" [:pointer] :pointer)
+;; (widget clock user-data) -> G_SOURCE_CONTINUE (1) or G_SOURCE_REMOVE (0),
+;; run in each frame's update phase, i.e. before that frame's layout. Adding
+;; one keeps frames coming until it is removed.
+(defcfn widget-add-tick-callback "gtk_widget_add_tick_callback"
+  [:pointer :pointer :pointer :pointer] :int)
 (defcfn main-context-wakeup "g_main_context_wakeup" [:pointer] :void)
 
 ;; -- process identity ------------------------------------------------------

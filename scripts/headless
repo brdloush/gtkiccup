@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Run a command inside a PRIVATE, windowless headless cage: one fresh
+# compositor per run, torn down when the command exits. wlroots' headless
+# backend needs no DRM master and maps no host window, so a test run never
+# touches your desktop or steals focus, and there is no server to start, stop,
+# or leak. A cold start costs ~30 ms. Adapted from babatidal's scripts/headless.
+#
+# This wrapper is the ONLY place that owns the environment. Without `cage --`
+# WLR_BACKENDS is inert and the child silently inherits WAYLAND_DISPLAY and
+# runs on the host display. DISPLAY is cleared so GTK cannot fall back to X.
+# The proof a run was really headless is cage's own log line
+# "Creating headless backend"; a socket named wayland-1 proves nothing.
+#
+# GTKICCUP_CAGE_BACKENDS=wayland nests under the host compositor instead
+# (maps one host window); GTKICCUP_CAGE_OUTPUTS sets the number of virtual
+# outputs. cage's exit status is the child's, so a failing suite still fails.
+# GTKICCUP_HEADLESS=1 tells the child it is in here: `bb shot` then resizes
+# the output to its window (scripts/wl_output.clj).
+set -euo pipefail
+unset DISPLAY || true
+export WLR_BACKENDS="${GTKICCUP_CAGE_BACKENDS:-headless}"
+export WLR_HEADLESS_OUTPUTS="${GTKICCUP_CAGE_OUTPUTS:-1}"
+export WLR_LIBINPUT_NO_DEVICES=1
+export GTKICCUP_HEADLESS=1
+exec cage -- "$@"

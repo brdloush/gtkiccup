@@ -5,13 +5,56 @@ of real widgets with GTK getters rather than trusting the reconciler's own tree;
 `reconcile_test` and most of `text_children_test` are the exceptions, since they
 are checking pointer identity and hiccup normalization respectively.
 
-`bb test` runs inside a persistent [cage](https://github.com/cage-kiosk/cage)
-compositor (`scripts/cage-server`), so its windows never map on your desktop
-and never steal focus. The first run starts cage if it is not up; `bb cage`
-starts it by hand, and its one window can then go to a spare workspace.
-`GTKICCUP_NO_CAGE=1 bb test` runs on the desktop instead. Only `bb test` does
-this: the examples, `bb shot` and `bb dev` open their windows on the desktop,
-and so does a single file run as `bb test/keyed_test.clj`.
+`bb test` runs every file inside its own private, windowless
+[cage](https://github.com/cage-kiosk/cage) compositor (`scripts/headless`).
+cage uses the wlroots *headless* backend: it needs no DRM master and maps no
+host window, so test windows never appear on your desktop and never steal
+focus. Each run boots a fresh compositor (about 30 ms) and tears it down at
+the end, so there is no server to start, stop or clean up. The whole suite
+takes about 30 s.
+
+```bash
+bb test                  # the whole suite, in a private headless cage
+bb tests-direct          # the same files, on the display you are on now
+bb test/keyed_test.clj   # one file, on your display
+scripts/headless bb test/keyed_test.clj   # one file, headless
+```
+
+Both tasks run the same files. A failing file does not stop the run: the
+runner collects the failures and ends with either `SUITE OK files=34` or
+`SUITE FAILED n of 34 -- [...]` and exit 1. `bb.edn`'s `tests-direct` task
+holds the file list; `test` is that task wrapped in `scripts/headless`. A new
+test file that is not in that list silently never runs.
+
+`scripts/headless` owns its environment: it clears `DISPLAY` and sets
+`WLR_BACKENDS=headless`, `WLR_HEADLESS_OUTPUTS=1` and
+`WLR_LIBINPUT_NO_DEVICES=1` before it runs `cage -- <command>`. Setting those
+variables without `cage --` does nothing: the child then inherits the shell's
+`WAYLAND_DISPLAY` and runs on your desktop. The proof that a run really was
+headless is cage's log line `Creating headless backend`. cage passes the
+child's exit status through, so a failing suite fails the task. Two variables
+change it: `GTKICCUP_CAGE_BACKENDS=wayland` nests cage under your compositor
+instead (one host window appears), and `GTKICCUP_CAGE_OUTPUTS` sets the number
+of virtual outputs. The INFO line `unable to lock lockfile .../wayland-0.lock`
+at startup is wlroots probing, not an error.
+
+The headless output has scale 1, so a test that depends on the display scale
+sees 1 under `bb test`. cage is a kiosk: it sizes every window to the output,
+1280x720 unless something changes it, whatever size the window asked for.
+
+`bb shot` uses the same wrapper. Before it opens the app, `examples/shot.clj`
+sets the output to the target's `:size` times 2, at scale 2, through
+`scripts/wl_output.clj` -- a small client for the wlroots output-management
+protocol, the one `wlr-randr` speaks. The kiosk then gives the window exactly
+`:size`, rendered at HiDPI. `GTKICCUP_SHOT_SCALE` changes the factor. The
+weather shot reads an empty config in a temp dir, never your
+`~/.config/bb-weather.edn`, so its language comes from `LANG` and its place is
+the default (Prague). Two
+differences from a desktop shot: the window is maximized, so the header bar's
+maximize button shows its "restore" glyph, and content taller than `:size`
+scrolls instead of growing the window. `bb shot-direct` takes the picture on
+your own display, at its scale. The examples and `bb dev` always open their
+windows on the desktop: those windows are meant to be seen.
 
 | file | what it pins down |
 | --- | --- |
@@ -47,6 +90,6 @@ and so does a single file run as `bb test/keyed_test.clj`.
 | `i18n_test.clj` | the locale is read from the environment and survives nonsense; the Czech dictionary covers every English key; a missing string falls back to English; one response renders in both languages with the numbers and icons untouched; Czech counts in six shapes (nil, `45 minut`, `3 hodiny`, `8 hodin`, `3 dny`,
 `9 dní`); the header switch rebuilds from the cache and is written to disk |
 | `input_test.clj` | keys arrive as names with modifiers; the return value decides whether the event stops; a throwing handler is contained and reports "not handled"; ordinary signals still work |
-| `motion_test.clj` | changing `:page` really animates rather than jumping, `:animate false` jumps, an unrelated re-render does not re-animate, a `:revealer` really opens and closes, and `nth-child` stops at the end of the sibling chain |
+| `motion_test.clj` | changing `:page` really animates rather than jumping, `:animate false` jumps, an unrelated re-render does not re-animate, a `:revealer` really opens and closes, `nth-child` stops at the end of the sibling chain, and a carousel built with a starting `:page` is on that page once the window has a size |
 | `deckmd_test.clj` | markdown to slides, Pango escaping (including an injection attempt), and every key-to-action transition |
 | `desktop_test.clj` | the `.desktop` entry has every key a compositor needs, install/uninstall/re-install are exact and reversible, and a missing `icons/` fails loudly rather than writing half an install. Writes into a temp `XDG_DATA_HOME`, never the real one |

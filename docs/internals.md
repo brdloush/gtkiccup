@@ -7,16 +7,16 @@ running app) and `adw` (libadwaita, which core does not know exists).
 
 | File | Lines | Job |
 | --- | --- | --- |
-| `src/gtkiccup/ffi.clj` | 422 | `defcfn` bindings for the GTK4/GObject symbols the library uses |
+| `src/gtkiccup/ffi.clj` | 427 | `defcfn` bindings for the GTK4/GObject symbols the library uses |
 | `src/gtkiccup/ratom.clj` | 25 | reactive atom: a normal atom whose watch marks the UI dirty |
-| `src/gtkiccup/widgets.clj` | 693 | the tag and signal tables, and the props every widget takes |
+| `src/gtkiccup/widgets.clj` | 720 | the tag and signal tables, and the props every widget takes |
 | `src/gtkiccup/hiccup.clj` | 414 | validation, text children, splicing, and the translation into Replicant's hiccup |
 | `src/gtkiccup/renderer.clj` | 399 | Replicant's `IRender` protocol, for GTK |
 | `src/gtkiccup/core.clj` | 328 | the window, the main loop, the GTK thread, the public API |
 | `src/gtkiccup/refs.clj` | 139 | named widget references, kept live by the renderer |
 | `src/gtkiccup/alias.clj` | 138 | late-bound aliases: components as a namespaced keyword plus plain-data attrs, expanded only when the attrs change |
 | `src/gtkiccup/dev.clj` | 260 | dev-only: var watches, auto-refresh, file watching, screenshots |
-| `src/gtkiccup/adw.clj` | 642 | optional: libadwaita bindings and 22 tags, 20 of them new -- its `:bin` and `:clamp` replace the core tags of the same name, for 37 tags in total. Core does not know it exists |
+| `src/gtkiccup/adw.clj` | 656 | optional: libadwaita bindings and 22 tags, 20 of them new -- its `:bin` and `:clamp` replace the core tags of the same name, for 37 tags in total. Core does not know it exists |
 
 An app's own strings are its own business, so translation is not in `src/`.
 `examples/i18n.clj` is the whole mechanism -- a dictionary per language, `t`,
@@ -296,7 +296,7 @@ the core tags -- along with window types, signals and a stylesheet, from outside
 | `run` takes `:on-render` | called after *every* render, once the widgets carry this frame's props. Too early to measure anything on the first render: nothing is laid out yet |
 | `run` takes `:on-layout` | called after every frame GTK paints, from the window frame clock's `after-paint` signal -- the first point where sizes and positions are real, the first frame included. Fires only when something paints, so an idle window does not spin: measured 0 to 15 calls in a quiet second here, against the ~60/s a self-feeding repaint loop would give. It is not a guarantee of *zero* extra frames -- a pointer crossing the window or the desktop repainting next door costs a frame or two -- so the honest statement is that nothing wakes it on a timer |
 | `run` takes `:app-id` / `:app-name` | the process identity a compositor matches against a `.desktop` file -- set before `gtk_init`, because afterwards it does nothing |
-| specs carry `:after-children` | for a container whose props refer to its children. A carousel's initial `:page` is ignored otherwise, because `:apply` runs before the children exist |
+| specs carry `:after-children` | for a container whose props refer to its children. A carousel's initial `:page` is ignored otherwise, because `:apply` runs before the children exist. Even then it is too early: `adw_carousel_scroll_to` does nothing while the carousel has no size, so the carousel waits with `each-frame-until!` for the first frame that has one. On the desktop the first layout often came soon enough to hide this; a headless compositor lays out later every time |
 | `:ref` names are live | the renderer registers a widget's `:ref` name when it builds the widget and drops it on release, so another node can name a sibling instead of pointing at it -- `:view-switcher`'s `:stack` is resolved in `:apply` and again in `:after-children`, because the stack may be built late |
 | `:append` / `:remove` get the child's props | lets a container read a `:slot` prop and put the child somewhere specific |
 | specs may carry `:insert-after` | `(fn [parent child sibling-or-nil props])`: a positional insert, so a keyed move is one call. Without it, an insert in the middle re-appends the children that follow it, which is right but more work |
